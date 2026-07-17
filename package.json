@@ -1,0 +1,10 @@
+{
+  "name": "ordinex",
+  "private": true,
+  "description": "ORDINEX — AI-powered regulatory compliance & risk intelligence platform.",
+  "scripts": {
+    "configure": "node scripts/configure.js",
+    "deploy": "bash scripts/deploy.sh",
+    "emulate": "firebase emulators:start"
+  }
+}
