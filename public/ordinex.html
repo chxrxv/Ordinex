@@ -34760,16 +34760,16 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
    to open this file with zero setup.
    ================================================================ */
 const firebaseConfig = {
-  apiKey: "AIzaSyDBPpBdNi25SqQ9madOkrGFbSRLaEmK4yw",
-  authDomain: "ordinex-862ba.firebaseapp.com",
-  projectId: "ordinex-862ba",
-  storageBucket: "ordinex-862ba.firebasestorage.app",
-  messagingSenderId: "639067545251",
-  appId: "1:639067545251:web:c2404245e09a88e0172916",
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
 };
 
 const geminiConfig = {
-  apiKey: "AQ.Ab8RN6LNiXnMt5S5pulFgvv7VPORkKVu-d7ezd4WCuxffHHGmg",
+  apiKey: "YOUR_GEMINI_API_KEY",
   model: "gemini-flash-lite-latest",
   modelFast: "gemini-flash-lite-latest",
   embedModel: "gemini-embedding-001",
@@ -38030,11 +38030,18 @@ if (LIVE_MODE) {
     }
   }
 
-  async function runComplianceAnalysis(text) {
+  async function runComplianceAnalysis(text, country) {
+    // Was never told which jurisdiction the document was tagged with, so
+    // every country produced the same generic, non-jurisdiction-specific
+    // analysis regardless of the country picked at upload time.
+    const jurisdictionLine = country
+      ? `The organization has designated this document as governed by ${country} law. Evaluate it specifically against the regulations that actually apply in ${country} (e.g. its data-protection/privacy law, and any other regulation relevant to the document's subject matter) — not generic best practice. Cite the specific regulation or article where a gap applies.`
+      : `No jurisdiction was specified for this document — evaluate it against general, widely-recognized compliance practice.`;
     const prompt = `You are a regulatory compliance analyst. Analyze the following document text and:
 1. Identify which regulatory domain it most likely relates to (Data Privacy, Finance, HR, Cybersecurity, or Corporate Governance).
-2. Give an overall compliance score from 0-100 based on how well the content reflects sound compliance practice.
-3. List up to 5 specific gaps or risks found, each with a severity of High, Medium, or Low, and a concrete recommendation to remediate it (1-3 sentences, actionable).
+2. ${jurisdictionLine}
+3. Give an overall compliance score from 0-100 based on how well the content complies with the applicable regulation(s) identified above.
+4. List up to 5 specific gaps or risks found, each with a severity of High, Medium, or Low, the specific regulation/article it violates where applicable, and a concrete recommendation to remediate it (1-3 sentences, actionable).
 Respond ONLY as JSON in this exact shape:
 {"domain":"...","score":0,"gaps":[{"title":"...","severity":"High","description":"...","recommendation":"..."}]}
 
@@ -38795,7 +38802,7 @@ ${text.slice(0, 15000)}
         const savedText = text.slice(0, 200000);
         await fb.setDoc(docRef, { extractedText: savedText }, { merge: true });
 
-        const analysis = await runComplianceAnalysis(text);
+        const analysis = await runComplianceAnalysis(text, country);
         await applyAnalysisResult({
           docRef, docId, orgId: DB.currentUser.orgId, fileName: f.name,
           analysis, actorUid: fbAuth.currentUser.uid, domainOverride: domain || null, sourceText: text,
@@ -39170,7 +39177,7 @@ ${docsSummary}`;
         try {
           const text = docData.extractedText;
           if (!text || text.trim().length < 20) throw new Error('No saved text for this document.');
-          const analysis = await runComplianceAnalysis(text);
+          const analysis = await runComplianceAnalysis(text, docData.country);
           await applyAnalysisResult({ docRef: d.ref, docId: d.id, orgId, fileName: docData.name || d.id, analysis, actorUid: uid, domainOverride: docData.domain, sourceText: text });
           reanalyzed += 1;
         } catch (err) {
