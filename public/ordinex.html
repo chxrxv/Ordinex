@@ -36506,7 +36506,7 @@ function renderComplianceAnalysis(){
         <option value="all" ${STATE.severityFilter==='all'?'selected':''}>All Severities</option>
         ${['High','Medium','Low'].map(s=>`<option value="${s}" ${STATE.severityFilter===s?'selected':''}>${s}</option>`).join('')}
       </select>
-      <button class="btn btn-ghost btn-sm" onclick="exportCSV(issues,'compliance-issues')">${icon('download',14)} Export</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportComplianceIssuesCSV()">${icon('download',14)} Export</button>
     </div>
   </div>
 
@@ -36561,6 +36561,19 @@ function exportCSV(data, filename){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('CSV export downloaded.','success');
+}
+// The Export button's onclick is inline HTML — it runs in global scope, so
+// it can't see `issues`, a variable local to renderComplianceAnalysis().
+// Clicking it threw "Uncaught ReferenceError: issues is not defined" and
+// did nothing. This re-derives the same filtered list from the same
+// STATE fields renderComplianceAnalysis() uses, from a global function
+// the onclick attribute can actually reach.
+function exportComplianceIssuesCSV(){
+  let issues = DB.complianceIssues;
+  const filterMap = {open:'Open', progress:'In Progress', resolved:'Resolved'};
+  if(STATE.issueFilter!=='all') issues = issues.filter(i=>i.status===filterMap[STATE.issueFilter]);
+  if(STATE.severityFilter!=='all') issues = issues.filter(i=>i.severity===STATE.severityFilter);
+  exportCSV(issues, 'compliance-issues');
 }
 
 /* ================================================================
