@@ -34652,6 +34652,15 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
   tr:last-child td{ border-bottom:none; }
   tbody tr{ transition:background .15s; }
   tbody tr:hover{ background:var(--panel-2); }
+  /* Wide tables (Documents, Team, etc.) scroll horizontally inside their
+     .glass wrapper — the Actions column at the far right end was getting
+     scrolled out of view with no visual hint it existed, which read as
+     "there's no delete button" rather than "scroll right". Pinning it
+     to the visible edge fixes that; .glass has no transparency (solid
+     gradient, no backdrop-filter) so an opaque background here doesn't
+     create a mismatch seam against content scrolling underneath. */
+  .sticky-col{ position:sticky; right:0; background:var(--panel-2); box-shadow:-8px 0 12px -8px rgba(0,0,0,0.35); }
+  th.sticky-col{ background:var(--panel); }
 
   .modal-backdrop{ position:fixed; inset:0; background:rgba(4,6,14,0.6); backdrop-filter:blur(4px); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
   .toast-wrap{ position:fixed; bottom:24px; right:24px; z-index:200; display:flex; flex-direction:column; gap:10px; }
@@ -34664,7 +34673,15 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     #sidebar.mobile-open{ transform:translateX(0); }
     #sidebar.collapsed{ width:var(--sidebar-w); } /* icon-collapse is a desktop concept; off-canvas already handles mobile, so don't also shrink it */
     .sidebar-backdrop.show{ display:block; position:fixed; inset:0; background:rgba(4,6,14,0.55); z-index:44; }
-    .search-box{ display:none; }
+    /* This used to hide every .search-box, which was the only search
+       element in the app at the time (the topbar global search). Every
+       page's own filter/search box (Documents, Team, Reports, Alerts,
+       Knowledge Base, Monitoring, Admin Console) reuses that same class
+       now, so the old rule was silently hiding all of them on any
+       screen <=980px — i.e. every phone and most tablets. Scoped to just
+       the topbar search now; it's the one genuinely squeezed for room
+       next to the sidebar toggle and the icon row. */
+    .topbar-search{ display:none; }
     #page-content{ padding:16px; }
     #topbar{ padding:0 16px; }
     .grid-cols-auto{ grid-template-columns:1fr !important; }
@@ -34678,6 +34695,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     .stat-card{ padding:16px; }
     .settings-layout{ grid-template-columns:1fr !important; }
     table{ font-size:13px; }
+    /* marketingNav() applies this class but no rule ever targeted it — the
+       logo + 3 nav links + Sign In + Start Free Trial button all tried to
+       fit on one unwrapped flex row with no wrap, overflowing the viewport
+       on any phone/small-tablet width. */
+    .marketing-links{ display:none; }
   }
   @media (max-width: 640px){
     .toast-wrap{ left:12px; right:12px; bottom:12px; }
@@ -34685,6 +34707,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     .topbar-user-text{ display:none; } /* name+role text is the single biggest topbar item — dropping it (avatar stays) is what keeps the icon row from overflowing on narrow phones */
     #topbar > div{ gap:6px !important; } /* both flex groups use inline gap:10-16px; tightened here since it's the difference between fitting 4 icon buttons + avatar and not, on a ~360px-wide content area */
     #chatInput{ min-height:74px; } /* rows="1" sizes for exactly one line, but its long placeholder wraps to three lines at mobile width (paperclip + send button leave little room) and was getting visually clipped */
+    .hero-title{ font-size:34px !important; } /* 56px (desktop) was forcing 5-6 line wraps on a ~320-375px phone width; !important is required to beat the inline style */
   }
 </style>
 <!-- Client-side document handling (moved out of Cloud Functions — see
@@ -34737,7 +34760,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
    to open this file with zero setup.
    ================================================================ */
 const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
+  apiKey: "AIzaSyDBPpBdNi25SqQ9madOkrGFbSRLaEmK4yw",
   authDomain: "ordinex-862ba.firebaseapp.com",
   projectId: "ordinex-862ba",
   storageBucket: "ordinex-862ba.firebasestorage.app",
@@ -34746,10 +34769,28 @@ const firebaseConfig = {
 };
 
 const geminiConfig = {
-  apiKey: "YOUR_GEMINI_API_KEY",
+  apiKey: "AQ.Ab8RN6LNiXnMt5S5pulFgvv7VPORkKVu-d7ezd4WCuxffHHGmg",
   model: "gemini-flash-lite-latest",
   modelFast: "gemini-flash-lite-latest",
   embedModel: "gemini-embedding-001",
+};
+
+/* Optional: team invite emails. sendInvite() always creates the Firestore
+   invite record regardless of this — that's what actually grants access.
+   This is only what turns it into an email the invitee receives, using
+   EmailJS (https://www.emailjs.com), which — like Gemini above — is
+   designed to be called with a public, domain-restrictable key straight
+   from the browser, no backend required. Free tier: 200 emails/month.
+   Leave the placeholders as-is to skip sending email; the invite still
+   works, it just won't be emailed (same as before this was wired up).
+   Setup: create a free account, connect an email service (Gmail, Outlook,
+   or your own SMTP), create a template with {{to_email}}, {{org_name}},
+   {{role}}, {{inviter_name}} and {{app_url}} variables, then paste your
+   Service ID, Template ID, and Public Key below. */
+const emailjsConfig = {
+  serviceId: "YOUR_EMAILJS_SERVICE_ID",
+  templateId: "YOUR_EMAILJS_TEMPLATE_ID",
+  publicKey: "YOUR_EMAILJS_PUBLIC_KEY",
 };
 
 const LIVE_MODE = firebaseConfig.apiKey !== "YOUR_API_KEY";
@@ -34853,8 +34894,8 @@ function toast(msg, type='info', title=''){
   el.className = 'toast glass fade-in';
   el.style.borderLeft = `3px solid ${color}`;
   el.innerHTML = `<div style="color:${color}; flex-shrink:0; margin-top:1px;">${icon(ic,18)}</div>
-    <div><div style="font-weight:700; font-size:13.5px; color:var(--text-0);">${title || (type[0].toUpperCase()+type.slice(1))}</div>
-    <div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${msg}</div></div>`;
+    <div><div style="font-weight:700; font-size:13.5px; color:var(--text-0);">${esc(title || (type[0].toUpperCase()+type.slice(1)))}</div>
+    <div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${esc(msg)}</div></div>`;
   wrap.appendChild(el);
   refreshIcons();
   setTimeout(()=>{ el.style.transition='all .3s ease'; el.style.opacity='0'; el.style.transform='translateX(20px)'; setTimeout(()=>el.remove(),300); }, 4200);
@@ -34947,6 +34988,35 @@ const DB = {
       requirements:[
         {title:'TRM Guideline 6.2', desc:'Establish incident management and response processes.', status:'partial'},
       ]},
+    { id:'reg_pipeda', name:'Personal Information Protection and Electronic Documents Act', short:'PIPEDA', country:'Canada', countryCode:'CA', domain:'Data Privacy', status:'active',
+      description:'Canadian federal law governing how private-sector organizations collect, use, and disclose personal information.',
+      tags:['Privacy','Canada','Consent','Personal Information'], updated:'2023-11-01',
+      requirements:[
+        {title:'Principle 3 — Consent', desc:'Knowledge and consent of the individual are required for the collection, use, or disclosure of personal information.', status:'met'},
+        {title:'Principle 7 — Safeguards', desc:'Personal information shall be protected by security safeguards appropriate to the sensitivity of the information.', status:'partial'},
+      ]},
+    { id:'reg_privacyact_au', name:'Privacy Act 1988', short:'Privacy Act', country:'Australia', countryCode:'AU', domain:'Data Privacy', status:'active',
+      description:'Australian federal law regulating the handling of personal information by government agencies and large businesses.',
+      tags:['Privacy','Australia','APPs','Data Handling'], updated:'2024-02-01',
+      requirements:[
+        {title:'APP 1 — Open and transparent management', desc:'Entities must manage personal information in an open and transparent way.', status:'met'},
+        {title:'APP 11 — Security of personal information', desc:'Entities must take reasonable steps to protect personal information from misuse and loss.', status:'gap'},
+      ]},
+    { id:'reg_lil_fr', name:'Loi Informatique et Libertés (French Data Protection Act)', short:'LIL', country:'France', countryCode:'FR', domain:'Data Privacy', status:'active',
+      description:'French national law implementing GDPR and governing data protection, enforced by the CNIL.',
+      tags:['Privacy','France','CNIL','GDPR Implementation'], updated:'2024-05-01',
+      requirements:[
+        {title:'CNIL Registration', desc:'Certain high-risk processing activities require prior consultation with the CNIL.', status:'partial'},
+        {title:'Data Subject Rights', desc:'Individuals have rights of access, rectification, and erasure enforced by the CNIL.', status:'met'},
+      ]},
+    { id:'reg_dpdp_in', name:'Digital Personal Data Protection Act', short:'DPDP Act', country:'India', countryCode:'IN', domain:'Data Privacy', status:'active',
+      description:'India\'s federal law governing the processing of digital personal data, requiring consent-based processing and data fiduciary obligations.',
+      tags:['Privacy','India','Consent','Data Fiduciary'], updated:'2025-01-01',
+      requirements:[
+        {title:'Section 6 — Consent', desc:'Personal data may only be processed on the basis of free, specific, informed and unambiguous consent.', status:'gap'},
+        {title:'Section 8 — Data Fiduciary Obligations', desc:'Data fiduciaries must implement reasonable security safeguards to prevent personal data breaches.', status:'partial'},
+        {title:'Section 9 — Children\'s Data', desc:'Processing of a child\'s personal data requires verifiable parental consent.', status:'met'},
+      ]},
   ],
 
   documents:[
@@ -34971,12 +35041,18 @@ const DB = {
   ],
 
   complianceIssues:[
-    { id:'ci1', title:'Missing explicit consent mechanism', reg:'GDPR', article:'Article 7 — Conditions for Consent', severity:'High', status:'Open', created:'2025-06-20' },
-    { id:'ci2', title:'Incomplete documentation of control procedures', reg:'SOX', article:'Section 404 — Internal Controls', severity:'High', status:'In Progress', created:'2025-06-19' },
-    { id:'ci3', title:'Data subject access request process not defined', reg:'GDPR', article:'Article 15 — Right of Access', severity:'Medium', status:'Open', created:'2025-06-20' },
-    { id:'ci4', title:'Cross-border transfer mechanism undocumented', reg:'GDPR', article:'Article 44 — Transfers', severity:'Medium', status:'Open', created:'2025-06-17' },
-    { id:'ci5', title:'Access logging gaps on cardholder systems', reg:'PCI DSS', article:'Requirement 10', severity:'High', status:'Open', created:'2025-06-16' },
-    { id:'ci6', title:'Opt-out workflow missing confirmation step', reg:'CCPA', article:'Right to Opt-Out', severity:'Low', status:'Resolved', created:'2025-06-02' },
+    { id:'ci1', title:'Missing explicit consent mechanism', reg:'GDPR', article:'Article 7 — Conditions for Consent', severity:'High', status:'Open', created:'2025-06-20',
+      recommendation:'Update the consent capture flow to require an explicit affirmative action before processing personal data, and log the timestamp, method, and scope of consent for audit purposes. Estimated remediation effort: 2–3 sprint days.' },
+    { id:'ci2', title:'Incomplete documentation of control procedures', reg:'SOX', article:'Section 404 — Internal Controls', severity:'High', status:'In Progress', created:'2025-06-19',
+      recommendation:'Document the design and operating effectiveness of key internal controls, including control owners, testing frequency, and evidence retention. Estimated remediation effort: 1–2 sprint weeks.' },
+    { id:'ci3', title:'Data subject access request process not defined', reg:'GDPR', article:'Article 15 — Right of Access', severity:'Medium', status:'Open', created:'2025-06-20',
+      recommendation:'Define and document a DSAR intake, verification, and fulfillment workflow with a target response time under 30 days. Estimated remediation effort: 3–5 sprint days.' },
+    { id:'ci4', title:'Cross-border transfer mechanism undocumented', reg:'GDPR', article:'Article 44 — Transfers', severity:'Medium', status:'Open', created:'2025-06-17',
+      recommendation:'Document the legal transfer mechanism (e.g. Standard Contractual Clauses) used for each cross-border data flow and attach it to the relevant vendor record. Estimated remediation effort: 2–3 sprint days.' },
+    { id:'ci5', title:'Access logging gaps on cardholder systems', reg:'PCI DSS', article:'Requirement 10', severity:'High', status:'Open', created:'2025-06-16',
+      recommendation:'Enable centralized access logging on all systems handling cardholder data, with log retention of at least one year and daily review of security events. Estimated remediation effort: 1 sprint week.' },
+    { id:'ci6', title:'Opt-out workflow missing confirmation step', reg:'CCPA', article:'Right to Opt-Out', severity:'Low', status:'Resolved', created:'2025-06-02',
+      recommendation:'Add an explicit confirmation screen after an opt-out request so consumers get clear acknowledgment their request was received and processed. Estimated remediation effort: 1–2 sprint days.' },
   ],
 
   riskCategories:[
@@ -35042,7 +35118,8 @@ const STATE = {
   authed:false,
   needsOrg:false, // true once we know a signed-in user has no organizationId yet (e.g. signed up via Google, which has no org-name field) — gates the dashboard behind a one-time onboarding screen instead of silently showing stale placeholder numbers
   appReady:false, // LIVE_MODE only: false from sign-in until the first real users/{uid} snapshot resolves — see the render() gate for why this exists
-  docsReady:false, // LIVE_MODE only: false until the org's documents/issues listener has delivered its first snapshot — recomputeDerivedAnalytics() needs this to run before DB.kpis stops reflecting the hardcoded demo defaults
+  docsReady:false, // LIVE_MODE only: false until the org's documents listener has delivered its first snapshot — recomputeDerivedAnalytics() needs this to run before DB.kpis stops reflecting the hardcoded demo defaults
+  issuesReady:false, // LIVE_MODE only: same idea, for the compliance issues listener specifically — see the render() gate for why this is tracked separately from docsReady
   route:'landing', // landing | login | register | app
   appPage:'dashboard',
   sidebarCollapsed:false,
@@ -35050,18 +35127,39 @@ const STATE = {
   theme: (localStorage.getItem('ordinex-theme') === 'light' ? 'light' : 'dark'), // was in-memory only, so it silently reset to dark on every reload regardless of what the user picked
   notifOpen:false,
   userMenuOpen:false,
+  globalSearch:'',
+  globalSearchOpen:false,
   comparisonCountries:['US','DE'],
   comparisonDomain:'Data Privacy',
   docFilter:'all',
   docSearch:'',
+  docDisplayLimit:50,
+  reportDisplayLimit:30,
+  issueDisplayLimit:50,
+  kbSearch:'',
+  kbCountry:'All Countries',
+  kbDomain:'All Domains',
+  kbDisplayLimit:30,
+  monitorSearch:'',
+  monitorCountry:'All Countries',
+  monitorType:'All Types',
+  monitorDisplayLimit:20,
+  adminOrgSearch:'',
   docView: window.innerWidth <= 980 ? 'grid' : 'list', // the table needs a horizontal swipe to reach Status/Score/Actions on a phone-width screen with no visual hint that it scrolls; the card grid is single-column and fully visible, so start there on mobile
   issueFilter:'all',
+  severityFilter:'all',
   reportFilter:'all',
+  reportSearch:'',
   alertFilter:'all',
+  alertSearch:'',
+  alertDisplayLimit:30,
   teamTab:'members',
+  teamSearch:'',
+  teamRoleFilter:'All Roles',
+  teamStatusFilter:'All Status',
   settingsTab:'profile',
   chatMessages:[
-    { role:'assistant', text:"Hello Sarah, I'm the ORDINEX compliance assistant. Ask me about any regulation, upload a document for gap analysis, or request a risk summary for your organization." }
+    { role:'assistant', text:"Hello, I'm the ORDINEX compliance assistant. Ask me about any regulation, upload a document for gap analysis, or request a risk summary for your organization." }
   ],
   chatBusy:false,
   isPlatformAdmin:null, // null = not yet checked, true/false = confirmed by getPlatformStats/listAllOrganizations
@@ -35070,7 +35168,7 @@ const STATE = {
 function nav(route, appPage){
   STATE.route = route;
   if(appPage) STATE.appPage = appPage;
-  STATE.notifOpen=false; STATE.userMenuOpen=false;
+  STATE.notifOpen=false; STATE.userMenuOpen=false; STATE.globalSearchOpen=false;
   STATE.sidebarMobileOpen=false; // the off-canvas mobile sidebar should close after picking a destination, same as any mobile drawer nav
   window.scrollTo(0,0);
   render();
@@ -35078,6 +35176,12 @@ function nav(route, appPage){
 function go(appPage){ nav('app', appPage); }
 
 /* ---------------------------- FORMAT HELPERS ---------------------------- */
+// Every render function builds HTML via template strings assigned to
+// innerHTML — anything user-controlled (document filenames, display names,
+// report titles, chat messages...) must go through this before interpolation,
+// or it's stored/reflected XSS the moment another org member views it.
+// Safe in both text-node and attribute-value contexts.
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function fmtDate(d){ const dt = new Date(d); return dt.toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}); }
 function severityBadge(sev){
   const map = {High:'badge-danger', Medium:'badge-warning', Low:'badge-success', Critical:'badge-danger'};
@@ -35098,10 +35202,17 @@ function statusBadge(status){
 function render(){
   const root = document.getElementById('root');
   document.documentElement.classList.toggle('light', STATE.theme==='light');
+  // render() does a full innerHTML replace, which would otherwise kick
+  // focus out of any input the user is actively typing in (e.g. live
+  // search boxes) on every keystroke. Capture and restore it around the
+  // rebuild so filters/search can re-render on input without that.
+  const active = document.activeElement;
+  const focusInfo = (active && active.id && (active.tagName==='INPUT'||active.tagName==='TEXTAREA'))
+    ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
 
-  if(STATE.route==='landing'){ root.innerHTML = renderLanding(); afterRender(); return; }
-  if(STATE.route==='login'){ root.innerHTML = renderAuth('login'); afterRender(); return; }
-  if(STATE.route==='register'){ root.innerHTML = renderAuth('register'); afterRender(); return; }
+  if(STATE.route==='landing'){ root.innerHTML = renderLanding(); afterRender(focusInfo); return; }
+  if(STATE.route==='login'){ root.innerHTML = renderAuth('login'); afterRender(focusInfo); return; }
+  if(STATE.route==='register'){ root.innerHTML = renderAuth('register'); afterRender(focusInfo); return; }
   // In LIVE_MODE, the dashboard's numbers come from Firestore listeners that
   // haven't delivered anything yet at the instant sign-in completes — without
   // this gate, the very first paint after every login/reload briefly shows
@@ -35109,8 +35220,8 @@ function render(){
   // (often very different, e.g. 0) values arrive a few hundred ms later.
   // Demo mode (LIVE_MODE off) has no such gap — STATE.appReady is never set
   // there, so it's excluded from this check entirely.
-  if(STATE.route==='app' && LIVE_MODE && (!STATE.appReady || (DB.currentUser.orgId && !STATE.docsReady))){ root.innerHTML = renderAppLoading(); afterRender(); return; }
-  if(STATE.route==='app' && STATE.needsOrg){ root.innerHTML = renderOrgOnboarding(); afterRender(); return; }
+  if(STATE.route==='app' && LIVE_MODE && (!STATE.appReady || (DB.currentUser.orgId && !(STATE.docsReady && STATE.issuesReady)))){ root.innerHTML = renderAppLoading(); afterRender(focusInfo); return; }
+  if(STATE.route==='app' && STATE.needsOrg){ root.innerHTML = renderOrgOnboarding(); afterRender(focusInfo); return; }
 
   // app shell
   root.innerHTML = `
@@ -35123,12 +35234,21 @@ function render(){
       </div>
     </div>
   `;
-  afterRender();
+  afterRender(focusInfo);
 }
 
-function afterRender(){
+function afterRender(focusInfo){
   refreshIcons();
   renderAllCharts();
+  if(focusInfo){
+    const el = document.getElementById(focusInfo.id);
+    if(el){
+      el.focus();
+      if(typeof focusInfo.start==='number' && el.setSelectionRange){
+        try{ el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(e){}
+      }
+    }
+  }
 }
 
 const NAV_SECTIONS = [
@@ -35200,9 +35320,12 @@ function renderTopbar(){
   <div id="topbar">
     <div style="display:flex; align-items:center; gap:16px;">
       <button class="icon-btn" onclick="toggleSidebar()" title="Toggle sidebar">${icon('panel-left',18)}</button>
-      <div class="search-box">
+      <div class="search-box topbar-search" style="position:relative;" onclick="event.stopPropagation();">
         ${icon('search',16)}
-        <input placeholder="Search regulations, documents, reports..." onkeydown="if(event.key==='Enter'){toast('Showing results for &quot;'+this.value+'&quot;','info','Search')}" />
+        <input id="globalSearchInput" placeholder="Search regulations, documents, reports..." value="${esc(STATE.globalSearch)}"
+          oninput="STATE.globalSearch=this.value; STATE.globalSearchOpen=!!this.value.trim(); render();"
+          onkeydown="if(event.key==='Escape'){STATE.globalSearch=''; STATE.globalSearchOpen=false; render();} else if(event.key==='Enter'){event.preventDefault(); openFirstGlobalSearchResult();}" />
+        ${STATE.globalSearchOpen ? renderGlobalSearchResults() : ''}
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px; position:relative;">
@@ -35231,6 +35354,56 @@ function renderTopbar(){
   </div>`;
 }
 
+function computeGlobalSearchResults(){
+  const q = STATE.globalSearch.trim().toLowerCase();
+  if(!q) return { pages:[], regulations:[], documents:[], reports:[] };
+  // Matching app pages/features (e.g. "knowledge" -> Knowledge Base) matters
+  // at least as much as matching data records — especially for a brand-new
+  // org with zero documents/reports/regulations synced yet, where the data
+  // collections below are empty and would otherwise always say "no matches"
+  // no matter what you typed.
+  const pages = NAV_SECTIONS.flatMap(s=>s.items).filter(p=>p.label.toLowerCase().includes(q)).slice(0,5);
+  const regulations = DB.regulations.filter(r=>
+    r.name.toLowerCase().includes(q) || r.short.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) || (r.tags||[]).some(t=>t.toLowerCase().includes(q))
+  ).slice(0,4);
+  const documents = DB.documents.filter(d=>d.name.toLowerCase().includes(q)).slice(0,4);
+  const reports = DB.reports.filter(r=>r.title.toLowerCase().includes(q) || (r.summary||'').toLowerCase().includes(q)).slice(0,4);
+  return { pages, regulations, documents, reports };
+}
+function globalSearchResultRow(title, sub, page, id){
+  return `<div style="display:flex; flex-direction:column; padding:8px 10px; border-radius:8px; cursor:pointer;" onclick="openGlobalSearchResult('${page}','${id}')" onmouseover="this.style.background='var(--panel-2)'" onmouseout="this.style.background='transparent'">
+    <div style="font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(title)}</div>
+    <div style="font-size:11.5px; color:var(--text-3);">${esc(sub)}</div>
+  </div>`;
+}
+function renderGlobalSearchResults(){
+  const { pages, regulations, documents, reports } = computeGlobalSearchResults();
+  const total = pages.length + regulations.length + documents.length + reports.length;
+  return `<div class="glass fade-in" style="position:absolute; top:calc(100% + 8px); left:0; width:380px; max-height:420px; overflow-y:auto; padding:8px; box-shadow:0 24px 48px -12px rgba(0,0,0,0.55); z-index:50;">
+    ${total===0 ? `<div style="padding:16px; text-align:center; color:var(--text-2); font-size:13px;">No matches for "${esc(STATE.globalSearch)}"</div>` : `
+      ${pages.length?`<div style="padding:8px 10px 4px; font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-3);">Pages</div>${pages.map(p=>globalSearchResultRow(p.label, 'Go to page', 'nav', p.key)).join('')}`:''}
+      ${regulations.length?`<div style="padding:8px 10px 4px; font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-3);">Regulations</div>${regulations.map(r=>globalSearchResultRow(r.name+' ('+r.short+')', r.country+' • '+r.domain, 'knowledge', r.id)).join('')}`:''}
+      ${documents.length?`<div style="padding:8px 10px 4px; font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-3);">Documents</div>${documents.map(d=>globalSearchResultRow(d.name, d.country+' • '+d.status, 'documents', d.id)).join('')}`:''}
+      ${reports.length?`<div style="padding:8px 10px 4px; font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-3);">Reports</div>${reports.map(r=>globalSearchResultRow(r.title, r.type, 'reports', r.id)).join('')}`:''}
+    `}
+  </div>`;
+}
+function openFirstGlobalSearchResult(){
+  const { pages, regulations, documents, reports } = computeGlobalSearchResults();
+  if(pages[0]) return openGlobalSearchResult('nav', pages[0].key);
+  if(regulations[0]) return openGlobalSearchResult('knowledge', regulations[0].id);
+  if(documents[0]) return openGlobalSearchResult('documents', documents[0].id);
+  if(reports[0]) return openGlobalSearchResult('reports', reports[0].id);
+  toast('No matches for "'+STATE.globalSearch+'".', 'info');
+}
+function openGlobalSearchResult(page, id){
+  STATE.globalSearch=''; STATE.globalSearchOpen=false;
+  if(page==='nav'){ go(id); return; }
+  go(page);
+  if(page==='knowledge') viewRegulation(id);
+  else if(page==='documents') viewDocument(id);
+  else if(page==='reports') viewReport(id);
+}
 function renderNotifDropdown(){
   const items = DB.alerts.slice(0,5);
   return `
@@ -35244,8 +35417,8 @@ function renderNotifDropdown(){
         <div style="display:flex; gap:10px; padding:12px 10px; border-radius:10px; cursor:pointer;" onclick="go('alerts')" onmouseover="this.style.background='var(--panel-2)'" onmouseout="this.style.background='transparent'">
           <div class="icon-box" style="background:${a.color}22; color:${a.color};">${icon(a.icon,16)}</div>
           <div style="flex:1; min-width:0;">
-            <div style="font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;">${a.title} ${a.unread?'<span style="width:6px;height:6px;border-radius:50%;background:var(--accent-1);"></span>':''}</div>
-            <div style="font-size:12px; color:var(--text-2); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${a.body}</div>
+            <div style="font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;">${esc(a.title)} ${a.unread?'<span style="width:6px;height:6px;border-radius:50%;background:var(--accent-1);"></span>':''}</div>
+            <div style="font-size:12px; color:var(--text-2); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(a.body)}</div>
           </div>
         </div>`).join('')}
     </div>
@@ -35279,7 +35452,7 @@ function toggleSidebar(){
 function closeMobileSidebar(){ STATE.sidebarMobileOpen = false; render(); }
 function logout(){ STATE.authed=false; nav('landing'); toast('You have been signed out.','info','Signed out'); }
 
-document.addEventListener('click', ()=>{ if(STATE.notifOpen||STATE.userMenuOpen){ STATE.notifOpen=false; STATE.userMenuOpen=false; render(); } });
+document.addEventListener('click', ()=>{ if(STATE.notifOpen||STATE.userMenuOpen||STATE.globalSearchOpen){ STATE.notifOpen=false; STATE.userMenuOpen=false; STATE.globalSearchOpen=false; render(); } });
 
 function renderAppPage(){
   switch(STATE.appPage){
@@ -35343,7 +35516,7 @@ function renderLanding(){
   <!-- HERO -->
   <section style="max-width:900px; margin:0 auto; padding:100px 28px 60px; text-align:center;">
     <div class="badge badge-info fade-in" style="margin-bottom:24px; padding:7px 16px;">${icon('zap',14)} AI-Powered Global Compliance Intelligence</div>
-    <h1 class="fade-in" style="font-size:56px; line-height:1.08; font-weight:800; letter-spacing:-0.03em; margin-bottom:22px;">
+    <h1 class="fade-in hero-title" style="font-size:56px; line-height:1.08; font-weight:800; letter-spacing:-0.03em; margin-bottom:22px;">
       Navigate Global Compliance with <span style="background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent;">AI Precision</span>
     </h1>
     <p class="fade-in" style="font-size:18px; color:var(--text-2); max-width:680px; margin:0 auto 34px; line-height:1.6;">
@@ -35559,6 +35732,10 @@ function footerCol(title,links){
    ================================================================ */
 function renderAuth(mode){
   const isLogin = mode==='login';
+  // Demo credentials only make sense in demo mode — in LIVE_MODE they'd
+  // silently submit a fake email/password against real Firebase Auth
+  // unless the user noticed and cleared the fields first.
+  const prefillDemo = isLogin && !LIVE_MODE;
   return `
   <div style="min-height:100vh; display:flex;">
     <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:40px;">
@@ -35570,14 +35747,14 @@ function renderAuth(mode){
         <p style="color:var(--text-2); font-size:14.5px; margin-bottom:30px;">${isLogin?'Sign in to access your compliance dashboard':'Start your 14-day free trial. No credit card required.'}</p>
 
         <form onsubmit="event.preventDefault(); doAuth('${mode}');">
-          ${!isLogin?`<div style="margin-bottom:16px;"><label>Organization name</label><input id="authOrg" placeholder="Acme Corporation" required /></div>`:''}
+          ${!isLogin?`<div style="margin-bottom:16px;"><label>Organization name</label><input id="authOrg" placeholder="Acme Corporation" maxlength="120" required /></div>`:''}
           <div style="margin-bottom:16px;">
             <label>Email address</label>
-            <input id="authEmail" type="email" placeholder="you@company.com" value="${isLogin?'sarah.chen@techcorp.com':''}" required />
+            <input id="authEmail" type="email" placeholder="you@company.com" value="${prefillDemo?'sarah.chen@techcorp.com':''}" required />
           </div>
           <div style="margin-bottom:${isLogin?'10px':'16px'};">
             <div style="display:flex; justify-content:space-between;"><label>Password</label>${isLogin?`<a style="font-size:12.5px; color:var(--accent-1); font-weight:600; cursor:pointer;" onclick="requestPasswordReset()">Forgot password?</a>`:''}</div>
-            <input id="authPass" type="password" placeholder="Enter your password" value="${isLogin?'••••••••':''}" required />
+            <input id="authPass" type="password" placeholder="Enter your password" value="${prefillDemo?'••••••••':''}" required />
           </div>
           ${isLogin?`<label style="display:flex; align-items:center; gap:8px; font-weight:500; color:var(--text-2); font-size:13.5px; margin-bottom:22px; cursor:pointer;"><input type="checkbox" style="width:auto;" /> Remember me</label>`:`<div style="margin-bottom:22px;"></div>`}
           <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">${isLogin?'Sign in':'Create account'}</button>
@@ -35672,6 +35849,28 @@ function handleAvatarUpload(files){
   // (see bottom of file — no Cloud Storage in this build).
   toast('Photo upload requires a connected Firebase backend (LIVE_MODE).', 'info');
 }
+function saveProfileChanges(){
+  // Demo-mode default: this gets replaced with a real Firestore updateDoc
+  // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
+  const name = document.getElementById('profileNameInput')?.value?.trim();
+  const orgInput = document.getElementById('profileOrgInput');
+  if(name) DB.currentUser.name = name;
+  if(orgInput && orgInput.value.trim()) DB.currentUser.org = orgInput.value.trim();
+  render();
+  toast('Profile updated.', 'success');
+}
+function changePassword(){
+  // Demo-mode default: this gets replaced with a real Identity Toolkit
+  // re-auth + password update in the Firebase integration layer when
+  // LIVE_MODE is on (see bottom of file).
+  toast('Password change requires a connected Firebase backend (LIVE_MODE).', 'info');
+}
+function toggleNotificationPref(key, enabled){
+  // Demo-mode default: this gets replaced with a real Firestore updateDoc
+  // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
+  DB.currentUser.notificationPrefs = { ...(DB.currentUser.notificationPrefs||NOTIFICATION_PREF_DEFAULTS), [key]: enabled };
+  toast('Preference updated.', 'success');
+}
 function doAuth(mode){
   const emailEl = document.getElementById('authEmail');
   const passEl = document.getElementById('authPass');
@@ -35762,7 +35961,7 @@ function renderDashboard(){
         ${DB.reports.slice(0,4).map(r=>`
         <div style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border);">
           <div class="icon-box" style="background:var(--grad-soft); color:var(--accent-1);">${icon('file-bar-chart',17)}</div>
-          <div style="flex:1;"><div style="font-weight:600; font-size:13.5px;">${r.title}</div><div style="font-size:12px; color:var(--text-2);">${fmtDate(r.date)}</div></div>
+          <div style="flex:1;"><div style="font-weight:600; font-size:13.5px;">${esc(r.title)}</div><div style="font-size:12px; color:var(--text-2);">${fmtDate(r.date)}</div></div>
           ${statusBadge(r.status)}
         </div>`).join('')}
       </div>
@@ -35777,8 +35976,8 @@ function renderDashboard(){
         <div style="display:flex; gap:12px; padding:12px 0; border-bottom:1px solid var(--border);">
           <span style="width:8px; height:8px; border-radius:50%; background:${a.color}; margin-top:6px; flex-shrink:0;"></span>
           <div style="flex:1;">
-            <div style="font-weight:600; font-size:13.5px;">${a.title}</div>
-            <div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${a.body}</div>
+            <div style="font-weight:600; font-size:13.5px;">${esc(a.title)}</div>
+            <div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${esc(a.body)}</div>
             <div style="font-size:11.5px; color:var(--text-3); margin-top:4px; display:flex; align-items:center; gap:4px;">${icon('clock',11)} ${fmtDate(a.date)}</div>
           </div>
         </div>`).join('')}
@@ -35792,7 +35991,7 @@ function renderDashboard(){
       <a style="font-size:13px; font-weight:600; color:var(--accent-1); display:flex; align-items:center; gap:4px; cursor:pointer;" onclick="go('monitoring')">View All ${icon('arrow-right',14)}</a>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr);">
-      ${DB.regulatoryFeed.map(f=>`
+      ${computeRegulatoryFeed().slice(0,4).map(f=>`
         <div class="glass card-hover" style="padding:16px; background:var(--bg-1);">
           <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
             <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${f.type}</span>
@@ -35800,7 +35999,7 @@ function renderDashboard(){
           </div>
           <div style="font-weight:700; font-size:14px; margin-bottom:6px;">${f.reg}</div>
           <div style="font-size:12.5px; color:var(--text-2); margin-bottom:10px; line-height:1.5;">${f.title}</div>
-          <div style="font-size:11.5px; color:var(--text-3);">Effective: ${fmtDate(f.effective)}</div>
+          <div style="font-size:11.5px; color:var(--text-3);">Effective: ${fmtDate(String(f.effective).slice(0,10))}</div>
         </div>`).join('')}
     </div>
   </div>
@@ -35950,17 +36149,20 @@ const FILE_ICON = { PDF:['file-text','#F86A6A'], DOCX:['file-type','#5B9CFA'], X
 function renderDocuments(){
   let docs = DB.documents.filter(d => STATE.docFilter==='all' || d.status===STATE.docFilter);
   if(STATE.docSearch) docs = docs.filter(d=>d.name.toLowerCase().includes(STATE.docSearch.toLowerCase()));
+  const totalDocs = docs.length;
+  docs = docs.slice(0, STATE.docDisplayLimit);
   return `
   ${pageHeader('Document Management','Upload and manage your compliance documents.',
     `<button class="btn btn-primary" onclick="openUploadModal()">${icon('upload',16)} Upload Document</button>`)}
 
   <div class="glass" style="padding:16px; margin-bottom:18px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-    <div class="search-box" style="width:auto; flex:1; min-width:240px;">${icon('search',16)}<input id="docSearchInput" placeholder="Search documents..." value="${STATE.docSearch}" oninput="STATE.docSearch=this.value; render(); document.getElementById('docSearchInput').focus();" /></div>
+    <div class="search-box" style="width:auto; flex:1; min-width:240px;">${icon('search',16)}<input id="docSearchInput" placeholder="Search documents..." value="${esc(STATE.docSearch)}" oninput="STATE.docSearch=this.value; render();" /></div>
     <select style="width:auto;" onchange="STATE.docFilter=this.value; render();">
       <option value="all" ${STATE.docFilter==='all'?'selected':''}>All Status</option>
       <option value="analyzed" ${STATE.docFilter==='analyzed'?'selected':''}>Analyzed</option>
       <option value="processing" ${STATE.docFilter==='processing'?'selected':''}>Processing</option>
-      <option value="pending" ${STATE.docFilter==='pending'?'selected':''}>Pending</option>
+      <option value="error" ${STATE.docFilter==='error'?'selected':''}>Error</option>
+      ${!LIVE_MODE ? `<option value="pending" ${STATE.docFilter==='pending'?'selected':''}>Pending</option>` : ''}
     </select>
     <div style="display:flex; border:1px solid var(--border-strong); border-radius:10px; overflow:hidden;">
       <button class="icon-btn" style="border:none; border-radius:0; ${STATE.docView==='list'?'background:var(--panel-2); color:var(--accent-1);':''}" onclick="STATE.docView='list'; render();">${icon('list',16)}</button>
@@ -35971,6 +36173,7 @@ function renderDocuments(){
   <div class="glass" id="docListWrap" style="overflow:hidden;">
     ${STATE.docView==='list' ? renderDocTable(docs) : renderDocGrid(docs)}
   </div>
+  ${loadMoreButton('docDisplayLimit', docs.length, totalDocs, 50)}
   `;
 }
 function renderDocTable(docs){
@@ -35978,21 +36181,22 @@ function renderDocTable(docs){
   return `
   <div style="overflow-x:auto;">
   <table>
-    <thead><tr><th>Document</th><th>Type</th><th>Size</th><th>Country</th><th>Status</th><th>Score</th><th>Uploaded</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Document</th><th>Type</th><th>Size</th><th>Country</th><th>Status</th><th>Score</th><th>Uploaded</th><th class="sticky-col">Actions</th></tr></thead>
     <tbody>
       ${docs.map(d=>{
         const [ic,color] = FILE_ICON[d.type]||FILE_ICON.TXT;
         return `<tr>
         <td><div style="display:flex; align-items:center; gap:10px;"><div class="icon-box" style="background:${color}1f; color:${color}; width:34px; height:34px;">${icon(ic,16)}</div>
-          <div><div style="font-weight:600; color:var(--text-0); font-size:13.5px;">${d.name}</div><div style="font-size:11.5px; color:var(--text-3);">${d.domain}</div></div></div></td>
+          <div><div style="font-weight:600; color:var(--text-0); font-size:13.5px;">${esc(d.name)}</div><div style="font-size:11.5px; color:var(--text-3);">${esc(d.domain)}</div></div></div></td>
         <td><span class="badge badge-neutral">${d.type}</span></td>
         <td>${d.size}</td>
         <td>${d.country}</td>
         <td>${statusBadge(d.status)}</td>
         <td>${d.score!=null?`<div style="display:flex; align-items:center; gap:8px;"><div class="progress-track" style="width:60px;"><div class="progress-fill" style="width:${d.score}%; background:${d.score>=75?'var(--success)':d.score>=50?'var(--warning)':'var(--danger)'};"></div></div><span style="font-size:12.5px; font-weight:700;">${d.score}%</span></div>`:'<span style="color:var(--text-3);">—</span>'}</td>
         <td>${fmtDate(d.uploaded)}</td>
-        <td><div style="display:flex; gap:6px;"><button class="icon-btn" style="width:32px;height:32px;" onclick="viewDocument('${d.id}')">${icon('eye',14)}</button>
-          <button class="icon-btn" style="width:32px;height:32px;" onclick="downloadDocumentPdf('${d.id}')">${icon('download',14)}</button></div></td>
+        <td class="sticky-col"><div style="display:flex; gap:6px;"><button class="icon-btn" style="width:32px;height:32px;" onclick="viewDocument('${d.id}')">${icon('eye',14)}</button>
+          <button class="icon-btn" style="width:32px;height:32px;" onclick="downloadDocumentPdf('${d.id}')">${icon('download',14)}</button>
+          ${canDeleteDocuments()?`<button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="confirmDeleteDocument('${d.id}')">${icon('trash-2',14)}</button>`:''}</div></td>
       </tr>`; }).join('')}
     </tbody>
   </table>
@@ -36005,9 +36209,9 @@ function renderDocGrid(docs){
       return `<div class="glass card-hover" style="padding:18px; background:var(--bg-1);" onclick="viewDocument('${d.id}')">
       <div style="display:flex; justify-content:space-between; margin-bottom:14px;">
         <div class="icon-box" style="background:${color}1f; color:${color};">${icon(ic,18)}</div>
-        ${statusBadge(d.status)}
+        <div style="display:flex; align-items:center; gap:8px;">${statusBadge(d.status)}${canDeleteDocuments()?`<button class="icon-btn" style="width:28px;height:28px; color:var(--danger);" onclick="event.stopPropagation(); confirmDeleteDocument('${d.id}')">${icon('trash-2',13)}</button>`:''}</div>
       </div>
-      <div style="font-weight:700; font-size:14px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${d.name}</div>
+      <div style="font-weight:700; font-size:14px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(d.name)}</div>
       <div style="font-size:12px; color:var(--text-2); margin-bottom:14px;">${d.country} • ${d.size}</div>
       ${d.score!=null?`<div class="progress-track"><div class="progress-fill" style="width:${d.score}%; background:${d.score>=75?'var(--success)':d.score>=50?'var(--warning)':'var(--danger)'};"></div></div><div style="font-size:11.5px; color:var(--text-2); margin-top:6px;">${d.score}% compliant</div>`:`<div style="font-size:11.5px; color:var(--text-3);">Awaiting analysis</div>`}
     </div>`; }).join('')}
@@ -36020,11 +36224,45 @@ function emptyState(ic,title,sub){
     <div style="color:var(--text-2); font-size:13.5px;">${sub}</div>
   </div>`;
 }
+// These lists were rendered in full with no pagination — an org with
+// hundreds of documents/reports/issues would render every row at once on
+// every keystroke of a filter. STATE[stateKey] tracks how many of the
+// (already filtered) results to show; "Load more" just reveals more of
+// what's already loaded client-side, no extra Firestore read needed.
+function loadMoreButton(stateKey, shownCount, totalCount, step){
+  if(shownCount >= totalCount) return '';
+  return `<div style="text-align:center; padding:18px;"><button class="btn btn-ghost btn-sm" onclick="STATE.${stateKey}+=${step}; render();">Load more (showing ${shownCount} of ${totalCount})</button></div>`;
+}
+// Matches firestore.rules' documents delete rule (admin/compliance_officer,
+// same org) — hiding the button for roles that would just get a
+// permission-denied error is friendlier than showing it and failing.
+function canDeleteDocuments(){
+  return !LIVE_MODE || ['admin','compliance_officer'].includes(DB.currentUser.role);
+}
+function confirmDeleteDocument(id){
+  const d = DB.documents.find(x=>x.id===id);
+  if(!d) return;
+  openModal(`
+    <div style="display:flex; justify-content:space-between; margin-bottom:16px;"><h3 style="font-size:19px; font-weight:800;">Delete Document</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
+    <p style="font-size:13.5px; color:var(--text-2); line-height:1.6; margin-bottom:20px;">Delete "<b>${esc(d.name)}</b>"? This removes the document and its extracted text permanently. This can't be undone.</p>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" style="background:var(--danger); border-color:var(--danger);" onclick="deleteDocument('${id}')">${icon('trash-2',15)} Delete</button>
+    </div>
+  `);
+}
+function deleteDocument(id){
+  // Demo-mode default: this gets replaced with a real Firestore deleteDoc
+  // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
+  DB.documents = DB.documents.filter(x=>x.id!==id);
+  closeModal(); render();
+  toast('Document deleted.','info');
+}
 function viewDocument(id){
   const d = DB.documents.find(x=>x.id===id);
   openModal(`
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px;">
-      <div><h3 style="font-size:19px; font-weight:800;">${d.name}</h3><div style="font-size:13px; color:var(--text-2); margin-top:4px;">${d.type} • ${d.size} • Uploaded ${fmtDate(d.uploaded)}</div></div>
+      <div><h3 style="font-size:19px; font-weight:800;">${esc(d.name)}</h3><div style="font-size:13px; color:var(--text-2); margin-top:4px;">${esc(d.type)} • ${esc(d.size)} • Uploaded ${fmtDate(d.uploaded)}</div></div>
       <button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
@@ -36052,7 +36290,7 @@ function viewDocument(id){
       ${d.gaps.map(g => `
         <div style="display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">
           <span style="margin-top:2px;">${severityBadge(g.severity)}</span>
-          <div><div style="font-weight:600; font-size:13.5px;">${g.title}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${g.description || ''}</div></div>
+          <div><div style="font-weight:600; font-size:13.5px;">${esc(g.title)}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${esc(g.description || '')}</div></div>
         </div>`).join('')}
     </div>` : ''}
     <div style="display:flex; gap:10px; justify-content:flex-end;">
@@ -36078,18 +36316,20 @@ function openUploadModal(){
       <input id="fileInput" type="file" multiple style="display:none;" onchange="handleUpload(this.files)" />
     </div>
     <div style="margin-top:18px; display:flex; gap:12px;">
-      <div style="flex:1;"><label>Jurisdiction</label><select id="uploadCountry"><option>United States</option><option>United Kingdom</option><option>Germany</option><option>Singapore</option><option>Japan</option></select></div>
-      <div style="flex:1;"><label>Domain</label><select id="uploadDomain"><option>Data Privacy</option><option>Finance</option><option>HR</option><option>Cybersecurity</option><option>Corporate Governance</option></select></div>
+      <div style="flex:1;"><label>Jurisdiction</label><select id="uploadCountry"><option value="" selected disabled>Select jurisdiction...</option>${Object.values(COUNTRY_NAMES).map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div style="flex:1;"><label>Domain</label><select id="uploadDomain"><option value="" selected disabled>Select domain...</option><option>Data Privacy</option><option>Finance</option><option>HR</option><option>Cybersecurity</option><option>Corporate Governance</option></select></div>
     </div>
   `);
 }
 function handleUpload(files){
   if(!files || files.length===0) return;
+  const country = document.getElementById('uploadCountry')?.value || '';
+  const domain = document.getElementById('uploadDomain')?.value || '';
+  if(!country || !domain){ toast('Select a jurisdiction and domain before uploading.', 'warning'); return; }
   Array.from(files).forEach(f=>{
     const ext = (f.name.split('.').pop()||'txt').toUpperCase();
     DB.documents.unshift({ id:'doc_'+Date.now()+Math.random().toString(16).slice(2), name:f.name, type:FILE_ICON[ext]?ext:'TXT',
-      size:(f.size/1024/1024).toFixed(1)+' MB', country:document.getElementById('uploadCountry')?.value||'United States',
-      domain:document.getElementById('uploadDomain')?.value||'Data Privacy', status:'processing', score:null, uploaded:new Date().toISOString().slice(0,10) });
+      size:(f.size/1024/1024).toFixed(1)+' MB', country, domain, status:'processing', score:null, uploaded:new Date().toISOString().slice(0,10) });
   });
   closeModal();
   toast(files.length+' file(s) uploaded. AI analysis has started.', 'success', 'Upload complete');
@@ -36104,11 +36344,34 @@ function handleUpload(files){
 /* ================================================================
    REGULATION COMPARISON
    ================================================================ */
-const ALL_COUNTRIES = ['US','UK','DE','SG','JP','FR','CA','AU'];
-const COUNTRY_NAMES = {US:'United States', UK:'United Kingdom', DE:'Germany', SG:'Singapore', JP:'Japan', FR:'France', CA:'Canada', AU:'Australia'};
+const ALL_COUNTRIES = ['US','UK','DE','SG','JP','FR','CA','AU','IN'];
+const COUNTRY_NAMES = {US:'United States', UK:'United Kingdom', DE:'Germany', SG:'Singapore', JP:'Japan', FR:'France', CA:'Canada', AU:'Australia', IN:'India'};
+const COMPARISON_MATRIX_CATEGORIES = [
+  { label:'Consent Requirements', keywords:['consent'] },
+  { label:'Data Subject Rights', keywords:['subject','right to know','right to delete','right to opt','access','erasure','rectification'] },
+  { label:'Cross-border Transfer', keywords:['cross-border','transfer'] },
+  { label:'Breach Notification', keywords:['breach','incident'] },
+  { label:'Data Retention', keywords:['retention','purpose limitation','minimization'] },
+];
+function findRequirementForCategory(reg, keywords){
+  if(!reg) return null;
+  return reg.requirements.find(r => keywords.some(k => (r.title+' '+r.desc).toLowerCase().includes(k))) || null;
+}
 function renderComparison(){
   const sel = STATE.comparisonCountries;
-  const regsForSel = sel.map(cc => DB.regulations.find(r=>r.countryCode===cc && r.domain===STATE.comparisonDomain) || DB.regulations.find(r=>r.countryCode===cc));
+  // Only match a regulation that's actually filed under the selected
+  // domain for that country — silently substituting a different domain's
+  // regulation is what caused "wrong data for the selected country/filter"
+  // before. null here means "no regulation on file", surfaced honestly
+  // below instead of masked.
+  const regsForSel = sel.map(cc => DB.regulations.find(r=>r.countryCode===cc && r.domain===STATE.comparisonDomain) || null);
+  const pairs = sel.map((cc,i) => ({ cc, reg: regsForSel[i] }));
+  const withReg = pairs.filter(p => p.reg);
+  const missingReg = pairs.filter(p => !p.reg);
+  const gapItems = [];
+  withReg.forEach(p => { p.reg.requirements.forEach(req => { if(req.status==='gap') gapItems.push({ country: COUNTRY_NAMES[p.cc], reg: p.reg.short, req }); }); });
+  const metCount = withReg.reduce((n,p) => n + p.reg.requirements.filter(r=>r.status==='met').length, 0);
+  const totalCount = withReg.reduce((n,p) => n + p.reg.requirements.length, 0);
   return `
   ${pageHeader('Regulation Comparison','Compare regulations across countries and identify differences.',
     `<button class="btn btn-primary" onclick="toast('New comparison workspace created.','success')">${icon('plus',16)} New Comparison</button>`)}
@@ -36139,18 +36402,26 @@ function renderComparison(){
     <table>
       <thead><tr><th>Requirement</th>${sel.map(cc=>`<th>${COUNTRY_NAMES[cc]}</th>`).join('')}</tr></thead>
       <tbody>
-        ${['Consent Requirements','Data Subject Rights','Cross-border Transfer','Breach Notification','Data Retention'].map((req,i)=>`
-        <tr><td style="font-weight:600; color:var(--text-0);">${req}</td>
-        ${sel.map((cc,j)=>{ const state = (i+j)%4===3?'gap':(i+j)%3===0?'warn':'ok';
-          const s = state==='ok'?['check-circle-2','var(--success)']:state==='warn'?['alert-triangle','var(--warning)']:['minus-circle','var(--text-3)'];
-          return `<td style="text-align:left;"><div class="icon-box" style="width:28px;height:28px; background:${s[1]}1f; color:${s[1]};">${icon(s[0],14)}</div></td>`; }).join('')}
+        ${COMPARISON_MATRIX_CATEGORIES.map(cat=>`
+        <tr><td style="font-weight:600; color:var(--text-0);">${cat.label}</td>
+        ${regsForSel.map(reg=>{
+          const found = findRequirementForCategory(reg, cat.keywords);
+          const state = !reg ? 'nodata' : !found ? 'unknown' : found.status;
+          const s = state==='met'?['check-circle-2','var(--success)']
+                  : state==='gap'?['x-circle','var(--danger)']
+                  : state==='partial'?['alert-triangle','var(--warning)']
+                  : ['minus-circle','var(--text-3)'];
+          const title = !reg ? 'No regulation on file for this domain' : !found ? 'Not explicitly addressed in this regulation' : found.title;
+          return `<td style="text-align:left;"><div class="icon-box" style="width:28px;height:28px; background:${s[1]}1f; color:${s[1]};" title="${esc(title)}">${icon(s[0],14)}</div></td>`; }).join('')}
         </tr>`).join('')}
       </tbody>
     </table>
+    ${missingReg.length ? `<p style="font-size:12px; color:var(--text-3); margin-top:12px;">No ${STATE.comparisonDomain} regulation on file for: ${missingReg.map(p=>COUNTRY_NAMES[p.cc]).join(', ')}. Try a different domain or run "Sync Regulation Database" from the Knowledge Base.</p>` : ''}
   </div>
 
-  <div class="grid-cols-auto" style="grid-template-columns:repeat(${Math.min(sel.length,2)},1fr); margin-bottom:20px;">
-    ${regsForSel.filter(Boolean).slice(0,2).map(r=>`
+  <div class="grid-cols-auto" style="grid-template-columns:repeat(${Math.min(withReg.length,2)||1},1fr); margin-bottom:20px;">
+    ${withReg.length===0 ? `<div class="glass" style="padding:20px; color:var(--text-2); font-size:13.5px;">None of the selected jurisdictions have a ${STATE.comparisonDomain} regulation on file yet.</div>` :
+    withReg.map(p=>p.reg).slice(0,2).map(r=>`
     <div class="glass" style="padding:20px;">
       <div style="display:flex; gap:8px; margin-bottom:12px;"><span class="badge badge-info">${r.country}</span><span class="badge badge-success">${r.status}</span></div>
       <div style="font-weight:800; font-size:17px; margin-bottom:8px;">${r.name} (${r.short})</div>
@@ -36174,23 +36445,24 @@ function renderComparison(){
       <div><div style="font-weight:700; font-size:16px;">AI Insights</div><div style="font-size:12px; color:var(--text-2);">Key differences and recommendations</div></div>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); margin-bottom:18px;">
-      <div class="glass" style="padding:16px; background:var(--warning-bg); border-color:transparent;">
-        <div style="color:var(--warning); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; margin-bottom:6px;">${icon('alert-triangle',15)} Consent Requirements</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">GDPR requires explicit opt-in consent while CCPA allows an opt-out mechanism. Consider implementing both for comprehensive compliance.</p>
+      <div class="glass" style="padding:16px; background:${gapItems.length?'var(--danger-bg)':'var(--success-bg)'}; border-color:transparent;">
+        <div style="color:${gapItems.length?'var(--danger)':'var(--success)'}; font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; margin-bottom:6px;">${icon(gapItems.length?'alert-triangle':'check-circle-2',15)} Open Gaps</div>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">${gapItems.length ? `${gapItems.length} unresolved requirement${gapItems.length>1?'s':''} across the selected jurisdictions, e.g. <b>${gapItems[0].req.title}</b> (${gapItems[0].reg}, ${gapItems[0].country}).` : `No open gaps found in the selected jurisdictions' ${STATE.comparisonDomain} requirements.`}</p>
       </div>
-      <div class="glass" style="padding:16px; background:var(--danger-bg); border-color:transparent;">
-        <div style="color:var(--danger); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; margin-bottom:6px;">${icon('alert-triangle',15)} Breach Notification</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">GDPR mandates 72-hour notification while US requirements vary by state. Implement a process that satisfies the strictest requirement.</p>
+      <div class="glass" style="padding:16px; background:${missingReg.length?'var(--warning-bg)':'var(--success-bg)'}; border-color:transparent;">
+        <div style="color:${missingReg.length?'var(--warning)':'var(--success)'}; font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; margin-bottom:6px;">${icon(missingReg.length?'alert-triangle':'check-circle-2',15)} Jurisdiction Coverage</div>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">${missingReg.length ? `No ${STATE.comparisonDomain} regulation on file for ${missingReg.map(p=>COUNTRY_NAMES[p.cc]).join(', ')}.` : `All ${sel.length} selected jurisdictions have a ${STATE.comparisonDomain} regulation on file.`}</p>
       </div>
       <div class="glass" style="padding:16px; background:var(--success-bg); border-color:transparent;">
         <div style="color:var(--success); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; margin-bottom:6px;">${icon('check-circle-2',15)} Common Ground</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">Both regulations share data minimization and purpose limitation principles. Your current policy satisfies both requirements.</p>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">${totalCount ? `${metCount} of ${totalCount} tracked requirements across the selected regulations are currently met.` : 'No requirements to compare yet for this domain.'}</p>
       </div>
     </div>
     <div style="font-weight:700; font-size:14.5px; margin-bottom:10px;">Recommended Actions</div>
     <div style="display:flex; flex-direction:column; gap:8px;">
-      ${['Update consent mechanism to support both explicit opt-in and opt-out options','Implement a breach notification workflow that meets the 72-hour requirement','Create jurisdiction-specific privacy notices'].map(a=>`
-      <div style="display:flex; gap:8px; font-size:13.5px; color:var(--text-1);"><span style="color:var(--accent-1);">${icon('arrow-right',15)}</span>${a}</div>`).join('')}
+      ${(gapItems.length ? gapItems.slice(0,3).map(g=>`Address "${g.req.title}" under ${g.reg} (${g.country})`) : ['No outstanding actions for the selected jurisdictions and domain.'])
+        .concat(missingReg.length ? [`Add ${STATE.comparisonDomain} regulation coverage for ${missingReg.map(p=>COUNTRY_NAMES[p.cc]).join(', ')}`] : [])
+        .map(a=>`<div style="display:flex; gap:8px; font-size:13.5px; color:var(--text-1);"><span style="color:var(--accent-1);">${icon('arrow-right',15)}</span>${a}</div>`).join('')}
     </div>
   </div>
   `;
@@ -36209,6 +36481,7 @@ function renderComplianceAnalysis(){
   let issues = DB.complianceIssues;
   const filterMap = {open:'Open', progress:'In Progress', resolved:'Resolved'};
   if(STATE.issueFilter!=='all') issues = issues.filter(i=>i.status===filterMap[STATE.issueFilter]);
+  if(STATE.severityFilter!=='all') issues = issues.filter(i=>i.severity===STATE.severityFilter);
   const counts = { all:DB.complianceIssues.length, open:DB.complianceIssues.filter(i=>i.status==='Open').length,
     progress:DB.complianceIssues.filter(i=>i.status==='In Progress').length, resolved:DB.complianceIssues.filter(i=>i.status==='Resolved').length };
   return `
@@ -36229,27 +36502,31 @@ function renderComplianceAnalysis(){
       `).join('')}
     </div>
     <div style="display:flex; gap:10px;">
-      <select style="width:auto;"><option>All Severities</option><option>High</option><option>Medium</option><option>Low</option></select>
-      <button class="btn btn-ghost btn-sm" onclick="exportCSV(DB.complianceIssues,'compliance-issues')">${icon('download',14)} Export</button>
+      <select style="width:auto;" onchange="STATE.severityFilter=this.value; render();">
+        <option value="all" ${STATE.severityFilter==='all'?'selected':''}>All Severities</option>
+        ${['High','Medium','Low'].map(s=>`<option value="${s}" ${STATE.severityFilter===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV(issues,'compliance-issues')">${icon('download',14)} Export</button>
     </div>
   </div>
 
   <div class="glass" style="overflow-x:auto;">
     ${issues.length===0? emptyState('check-circle-2','No issues in this view','Nice work — nothing matches this filter right now.') : `
     <table>
-      <thead><tr><th>Issue</th><th>Regulation</th><th>Severity</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Issue</th><th>Regulation</th><th>Severity</th><th>Status</th><th>Created</th><th class="sticky-col">Actions</th></tr></thead>
       <tbody>
-        ${issues.map(i=>`
-        <tr><td><div style="font-weight:600; color:var(--text-0);">${i.title}</div><div style="font-size:12px; color:var(--text-3); margin-top:2px;">${i.article}</div></td>
-          <td><span class="badge badge-info">${i.reg}</span></td>
+        ${issues.slice(0, STATE.issueDisplayLimit).map(i=>`
+        <tr><td><div style="font-weight:600; color:var(--text-0);">${esc(i.title)}</div><div style="font-size:12px; color:var(--text-3); margin-top:2px;">${esc(i.article)}</div></td>
+          <td><span class="badge badge-info">${esc(i.reg)}</span></td>
           <td>${severityBadge(i.severity)}</td>
           <td>${statusBadge(i.status)}</td>
           <td>${fmtDate(i.created)}</td>
-          <td><button class="btn btn-ghost btn-sm" onclick="viewIssue('${i.id}')">${icon('eye',13)} View</button></td>
+          <td class="sticky-col"><button class="btn btn-ghost btn-sm" onclick="viewIssue('${i.id}')">${icon('eye',13)} View</button></td>
         </tr>`).join('')}
       </tbody>
     </table>`}
   </div>
+  ${loadMoreButton('issueDisplayLimit', Math.min(issues.length, STATE.issueDisplayLimit), issues.length, 50)}
   `;
 }
 function viewIssue(id){
@@ -36259,11 +36536,11 @@ function viewIssue(id){
       <div>${severityBadge(i.severity)} <span style="margin-left:8px;">${statusBadge(i.status)}</span></div>
       <button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
     </div>
-    <h3 style="font-size:19px; font-weight:800; margin-bottom:6px;">${i.title}</h3>
-    <div style="font-size:13px; color:var(--text-2); margin-bottom:18px;">${i.reg} — ${i.article}</div>
+    <h3 style="font-size:19px; font-weight:800; margin-bottom:6px;">${esc(i.title)}</h3>
+    <div style="font-size:13px; color:var(--text-2); margin-bottom:18px;">${esc(i.reg)} — ${esc(i.article)}</div>
     <div class="glass" style="padding:16px; margin-bottom:16px; background:var(--bg-1);">
       <div style="font-weight:700; font-size:13.5px; margin-bottom:8px; display:flex; align-items:center; gap:6px;">${icon('sparkles',15,'')} AI Recommendation</div>
-      <p style="font-size:13.5px; color:var(--text-1); line-height:1.6;">Update the consent capture flow to require an explicit affirmative action before processing personal data, and log the timestamp, method, and scope of consent for audit purposes. Estimated remediation effort: 2–3 sprint days.</p>
+      <p style="font-size:13.5px; color:var(--text-1); line-height:1.6;">${i.recommendation ? esc(i.recommendation) : 'No AI recommendation was generated for this issue. Run "New Analysis" to regenerate it with a recommendation.'}</p>
     </div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
@@ -36274,13 +36551,14 @@ function viewIssue(id){
 function i_resolve(id){ const i = DB.complianceIssues.find(x=>x.id===id); i.status='Resolved'; closeModal(); render(); toast('Issue marked as resolved.','success'); }
 
 function exportCSV(data, filename){
-  if(!data || data.length===0) return;
+  if(!data || data.length===0){ toast('Nothing to export for the current filters.','info'); return; }
   const headers = Object.keys(data[0]);
   const rows = data.map(row => headers.map(h => `"${String(row[h]).replace(/"/g,'""')}"`).join(','));
-  const csv = [headers.join(','), ...rows].join('\\n');
+  const csv = [headers.join(','), ...rows].join('\n'); // was '\\n' (literal backslash-n text, not a real line break) — every row ran together on one line, unreadable by any CSV parser
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename+'.csv'; a.click();
+  const a = document.createElement('a'); a.href = url; a.download = filename+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('CSV export downloaded.','success');
 }
@@ -36347,12 +36625,12 @@ function renderRisk(){
   <div class="glass" style="padding:22px; margin-bottom:20px;">
     <div style="font-weight:700; font-size:16px; margin-bottom:2px;">Risk Category Details</div>
     <div style="font-size:12.5px; color:var(--text-2); margin-bottom:16px;">Detailed analysis for each risk domain</div>
-    ${DB.riskCategories.map(rc=>`
+    ${DB.riskCategories.length===0 ? `<p style="font-size:13px; color:var(--text-2);">No risk assessment has been run yet for your organization. Click "New Assessment" above to generate one from your analyzed documents.</p>` : DB.riskCategories.map(rc=>`
       <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:16px 0; border-bottom:1px solid var(--border); gap:20px;">
         <div style="flex:1;">
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;"><span style="font-weight:700; font-size:15px;">${rc.name}</span><span class="badge" style="background:${riskLevelColor(rc.level)}1f; color:${riskLevelColor(rc.level)};">${rc.level}</span></div>
-          <p style="font-size:13px; color:var(--text-2); margin-bottom:10px;">${rc.desc}</p>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">${rc.tags.map(t=>`<span class="badge badge-neutral">${t}</span>`).join('')}</div>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;"><span style="font-weight:700; font-size:15px;">${esc(rc.name)}</span><span class="badge" style="background:${riskLevelColor(rc.level)}1f; color:${riskLevelColor(rc.level)};">${esc(rc.level)}</span></div>
+          <p style="font-size:13px; color:var(--text-2); margin-bottom:10px;">${esc(rc.desc)}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">${rc.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
         </div>
         <div style="text-align:right; flex-shrink:0;"><div style="font-size:26px; font-weight:800;">${rc.score}</div><div style="font-size:11.5px; color:var(--text-3);">Score</div></div>
       </div>`).join('')}
@@ -36364,10 +36642,10 @@ function renderRisk(){
       <div><div style="font-weight:700; font-size:16px;">AI Recommendations</div><div style="font-size:12px; color:var(--text-2);">Prioritized actions to reduce risk</div></div>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:1fr 1fr;">
-      ${DB.riskRecommendations.map((r,idx)=>`
+      ${DB.riskRecommendations.length===0 ? `<p style="font-size:13px; color:var(--text-2);">No recommendations yet — run a risk assessment first.</p>` : DB.riskRecommendations.map((r,idx)=>`
       <div class="glass card-hover" style="padding:14px 16px; background:var(--bg-1); display:flex; align-items:center; gap:12px;">
         <div style="width:26px; height:26px; border-radius:8px; background:var(--grad); color:#fff; font-weight:800; font-size:12.5px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${idx+1}</div>
-        <span style="font-size:13.5px; font-weight:600;">${r}</span>
+        <span style="font-size:13.5px; font-weight:600;">${esc(r)}</span>
       </div>`).join('')}
     </div>
   </div>
@@ -36386,43 +36664,64 @@ function renderRisk(){
    KNOWLEDGE BASE
    ================================================================ */
 function renderKnowledge(){
+  let regs = DB.regulations;
+  if(STATE.kbCountry!=='All Countries') regs = regs.filter(r=>r.country===STATE.kbCountry);
+  if(STATE.kbDomain!=='All Domains') regs = regs.filter(r=>r.domain===STATE.kbDomain);
+  if(STATE.kbSearch.trim()){
+    const q = STATE.kbSearch.trim().toLowerCase();
+    regs = regs.filter(r =>
+      r.name.toLowerCase().includes(q) || r.short.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) ||
+      (r.tags||[]).some(t=>t.toLowerCase().includes(q)) ||
+      (r.requirements||[]).some(req=>req.title.toLowerCase().includes(q) || req.desc.toLowerCase().includes(q))
+    );
+  }
+  const totalRegs = regs.length;
+  regs = regs.slice(0, STATE.kbDisplayLimit);
   return `
   ${pageHeader('Regulation Knowledge Base','Search and browse regulations across jurisdictions.',
     DB.currentUser.role === 'admin' ? `<button class="btn btn-ghost" onclick="syncRegulationDatabase()">${icon('refresh-cw',16)} Sync Regulation Database</button>` : '')}
   <div class="glass" style="padding:18px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
-    <div class="search-box" style="flex:2; width:auto; min-width:260px;">${icon('search',16)}<input placeholder="Search regulations, requirements, or keywords..." /></div>
-    <select style="flex:1; width:auto;"><option>All Countries</option>${Object.values(COUNTRY_NAMES).map(c=>`<option>${c}</option>`).join('')}</select>
-    <select style="flex:1; width:auto;"><option>All Domains</option><option>Data Privacy</option><option>Finance</option><option>Cybersecurity</option><option>HR</option></select>
+    <div class="search-box" style="flex:2; width:auto; min-width:260px;">${icon('search',16)}<input id="kbSearchInput" placeholder="Search regulations, requirements, or keywords..." value="${esc(STATE.kbSearch)}" oninput="STATE.kbSearch=this.value; render();" /></div>
+    <select style="flex:1; width:auto;" onchange="STATE.kbCountry=this.value; render();">
+      <option ${STATE.kbCountry==='All Countries'?'selected':''}>All Countries</option>
+      ${Object.values(COUNTRY_NAMES).map(c=>`<option ${STATE.kbCountry===c?'selected':''}>${c}</option>`).join('')}
+    </select>
+    <select style="flex:1; width:auto;" onchange="STATE.kbDomain=this.value; render();">
+      <option ${STATE.kbDomain==='All Domains'?'selected':''}>All Domains</option>
+      ${['Data Privacy','Finance','Cybersecurity','HR','Corporate Governance'].map(d=>`<option ${STATE.kbDomain===d?'selected':''}>${d}</option>`).join('')}
+    </select>
   </div>
+  ${regs.length===0 ? emptyState('search','No regulations match these filters','Try a different country, domain, or search term.') : `
   <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr);">
-    ${DB.regulations.map(r=>`
+    ${regs.map(r=>`
     <div class="glass card-hover" style="padding:20px; display:flex; flex-direction:column;">
-      <div style="display:flex; gap:8px; margin-bottom:12px;"><span class="badge badge-info">${icon('globe',12)} ${r.country}</span><span class="badge badge-neutral">${r.domain}</span><span class="badge badge-success">${r.status}</span></div>
-      <div style="font-weight:800; font-size:16px; margin-bottom:8px; flex:1;">${r.name} (${r.short})</div>
-      <p style="font-size:13px; color:var(--text-2); line-height:1.55; margin-bottom:14px;">${r.description}</p>
-      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">${r.tags.map(t=>`<span class="badge badge-neutral">${t}</span>`).join('')}</div>
+      <div style="display:flex; gap:8px; margin-bottom:12px;"><span class="badge badge-info">${icon('globe',12)} ${esc(r.country)}</span><span class="badge badge-neutral">${esc(r.domain)}</span><span class="badge badge-success">${esc(r.status)}</span></div>
+      <div style="font-weight:800; font-size:16px; margin-bottom:8px; flex:1;">${esc(r.name)} (${esc(r.short)})</div>
+      <p style="font-size:13px; color:var(--text-2); line-height:1.55; margin-bottom:14px;">${esc(r.description)}</p>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">${r.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
       <div style="display:flex; justify-content:space-between; align-items:center; padding-top:14px; border-top:1px solid var(--border); margin-top:auto;">
         <span style="font-size:11.5px; color:var(--text-3);">${icon('clock',12)} Updated: ${fmtDate(r.updated)}</span>
         <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer;" onclick="viewRegulation('${r.id}')">View ${icon('chevron-right',13)}</a>
       </div>
     </div>`).join('')}
-  </div>
+  </div>`}
+  ${loadMoreButton('kbDisplayLimit', regs.length, totalRegs, 30)}
   `;
 }
 function viewRegulation(id){
   const r = DB.regulations.find(x=>x.id===id);
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-      <div style="display:flex; gap:8px;"><span class="badge badge-info">${r.country}</span><span class="badge badge-success">${r.status}</span></div>
+      <div style="display:flex; gap:8px;"><span class="badge badge-info">${esc(r.country)}</span><span class="badge badge-success">${esc(r.status)}</span></div>
       <button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
     </div>
-    <h3 style="font-size:20px; font-weight:800; margin-bottom:8px;">${r.name} (${r.short})</h3>
-    <p style="font-size:13.5px; color:var(--text-2); line-height:1.6; margin-bottom:20px;">${r.description}</p>
+    <h3 style="font-size:20px; font-weight:800; margin-bottom:8px;">${esc(r.name)} (${esc(r.short)})</h3>
+    <p style="font-size:13.5px; color:var(--text-2); line-height:1.6; margin-bottom:20px;">${esc(r.description)}</p>
     <div style="font-weight:700; font-size:14.5px; margin-bottom:10px;">Requirements</div>
     ${r.requirements.map(req=>`
       <div style="display:flex; gap:10px; padding:12px 0; border-bottom:1px solid var(--border);">
         <span style="color:${req.status==='met'?'var(--success)':req.status==='gap'?'var(--danger)':'var(--warning)'}; margin-top:2px;">${icon(req.status==='met'?'check-circle-2':req.status==='gap'?'x-circle':'alert-triangle',16)}</span>
-        <div><div style="font-weight:600; font-size:13.5px;">${req.title}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:3px;">${req.desc}</div></div>
+        <div><div style="font-weight:600; font-size:13.5px;">${esc(req.title)}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:3px;">${esc(req.desc)}</div></div>
       </div>`).join('')}
     <div style="display:flex; justify-content:flex-end; margin-top:18px;"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>
   `, 620);
@@ -36432,24 +36731,35 @@ function viewRegulation(id){
    ANALYTICS
    ================================================================ */
 function renderAnalytics(){
+  // LIVE_MODE: everything below comes from recomputeDerivedAnalytics(),
+  // which derives it from real Firestore documents/issues (see
+  // subscribeToOrgDocuments). Demo mode keeps the original static numbers
+  // since there's no backend behind it to compute from.
+  const resolvedCount = DB.complianceIssues.filter(i=>i.status==='Resolved').length;
+  const pendingCount = DB.complianceIssues.filter(i=>i.status!=='Resolved').length;
+  const complianceScore = LIVE_MODE ? DB.kpis.complianceScore : 78;
+  const complianceTrend = LIVE_MODE ? (DB.kpis.complianceDelta || 0) : 8;
+  const issuesResolved = LIVE_MODE ? resolvedCount : 8;
+  const pendingActions = LIVE_MODE ? pendingCount : 8;
+  const countriesTracked = LIVE_MODE ? DB.kpis.countriesMonitored : 5;
   return `
   ${pageHeader('Compliance Analytics','Advanced analytics and insights for your compliance program.',
     `<select style="width:auto;"><option>Last 6 months</option><option>Last 12 months</option><option>Year to date</option></select>
      <button class="btn btn-ghost" onclick="toast('Analytics export downloaded as PDF.','success')">${icon('download',15)} Export Report</button>`)}
 
   <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
-    ${statCard('Compliance Score','78','out of 100','shield-check','var(--accent-1)',8)}
+    ${statCard('Compliance Score',complianceScore+'%','out of 100','shield-check','var(--accent-1)',complianceTrend)}
     <div class="glass stat-card" style="background:var(--success-bg); border-color:transparent;">
       <div style="font-size:13.5px; color:var(--text-2); font-weight:600; margin-bottom:10px;">Issues Resolved</div>
-      <div style="font-size:28px; font-weight:800; color:var(--success);">8</div>
-      <div style="font-size:12.5px; color:var(--text-2); margin-top:6px;">this month</div>
+      <div style="font-size:28px; font-weight:800; color:var(--success);">${issuesResolved}</div>
+      <div style="font-size:12.5px; color:var(--text-2); margin-top:6px;">${LIVE_MODE?'total':'this month'}</div>
     </div>
     <div class="glass stat-card" style="background:var(--warning-bg); border-color:transparent;">
       <div style="font-size:13.5px; color:var(--text-2); font-weight:600; margin-bottom:10px;">Pending Actions</div>
-      <div style="font-size:28px; font-weight:800; color:var(--warning);">8</div>
+      <div style="font-size:28px; font-weight:800; color:var(--warning);">${pendingActions}</div>
       <div style="font-size:12.5px; color:var(--text-2); margin-top:6px;">require attention</div>
     </div>
-    ${statCard('Countries Tracked','5','jurisdictions','globe','var(--accent-2)')}
+    ${statCard('Countries Tracked',countriesTracked,'jurisdictions','globe','var(--accent-2)')}
   </div>
 
   <div class="grid-cols-auto" style="grid-template-columns:2fr 1fr; margin-bottom:20px;">
@@ -36478,17 +36788,29 @@ function renderAnalytics(){
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr);">
       <div class="glass" style="padding:16px; background:var(--success-bg); border-color:transparent;">
-        <div style="font-weight:700; color:var(--success); margin-bottom:6px;">Projected Improvement</div>
-        <div style="font-size:26px; font-weight:800; color:var(--success); margin-bottom:6px;">+6%</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">Based on current remediation efforts, your compliance score is projected to reach 84% by Q4.</p>
+        <div style="font-weight:700; color:var(--success); margin-bottom:6px;">${LIVE_MODE ? 'Recent Trend' : 'Projected Improvement'}</div>
+        <div style="font-size:26px; font-weight:800; color:var(--success); margin-bottom:6px;">${complianceTrend>=0?'+':''}${complianceTrend}%</div>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6;">${LIVE_MODE
+          ? (DB.complianceTrend && DB.complianceTrend.actual && DB.complianceTrend.actual.length>=2
+              ? `Compliance score moved ${complianceTrend>=0?'up':'down'} ${Math.abs(complianceTrend)}% month-over-month, based on your analyzed documents.`
+              : 'Not enough monthly history yet to show a trend — analyze documents over a few months to populate this.')
+          : 'Based on current remediation efforts, your compliance score is projected to reach 84% by Q4.'}</p>
       </div>
       <div class="glass" style="padding:16px; background:var(--warning-bg); border-color:transparent;">
         <div style="font-weight:700; color:var(--warning); margin-bottom:6px;">Attention Required</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6; margin-top:20px;">GDPR consent requirements gap may result in score decrease if not addressed before the September deadline.</p>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6; margin-top:20px;">${LIVE_MODE
+          ? ((DB.issuesByDomain && DB.issuesByDomain.length)
+              ? (()=>{ const top = [...DB.issuesByDomain].sort((a,b)=>b.count-a.count)[0]; return `${top.domain} has the most open issues (${top.count}) across your organization — prioritize remediation there.`; })()
+              : 'No open compliance issues right now.')
+          : 'GDPR consent requirements gap may result in score decrease if not addressed before the September deadline.'}</p>
       </div>
       <div class="glass" style="padding:16px; background:rgba(91,124,250,0.12); border-color:transparent;">
         <div style="font-weight:700; color:var(--accent-1); margin-bottom:6px;">Best Practice Opportunity</div>
-        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6; margin-top:20px;">Countries with 80%+ scores show common patterns. Consider adopting vendor risk management practices org-wide.</p>
+        <p style="font-size:12.5px; color:var(--text-1); line-height:1.6; margin-top:20px;">${LIVE_MODE
+          ? ((DB.countryScores && DB.countryScores.length)
+              ? (()=>{ const top = [...DB.countryScores].sort((a,b)=>b.score-a.score)[0]; return `${COUNTRY_NAMES[top.country]||top.country} has your highest average document score (${top.score}%). Consider adopting the same review practices org-wide.`; })()
+              : 'Analyze documents across more jurisdictions to surface best-practice patterns here.')
+          : 'Countries with 80%+ scores show common patterns. Consider adopting vendor risk management practices org-wide.'}</p>
       </div>
     </div>
   </div>
@@ -36503,7 +36825,13 @@ function renderReports(){
   let reports = DB.reports;
   if(STATE.reportFilter==='completed') reports = reports.filter(r=>r.status==='completed');
   if(STATE.reportFilter==='generating') reports = reports.filter(r=>r.status==='generating');
+  if(STATE.reportSearch.trim()){
+    const q = STATE.reportSearch.trim().toLowerCase();
+    reports = reports.filter(r=>r.title.toLowerCase().includes(q) || r.type.toLowerCase().includes(q) || (r.summary||'').toLowerCase().includes(q));
+  }
   const counts = { all:DB.reports.length, completed:DB.reports.filter(r=>r.status==='completed').length, generating:DB.reports.filter(r=>r.status==='generating').length };
+  const totalReports = reports.length;
+  reports = reports.slice(0, STATE.reportDisplayLimit);
   return `
   ${pageHeader('Reports Center','Generate and download compliance reports.',
     `<button class="btn btn-primary" onclick="openGenerateReportModal()">${icon('plus',16)} Generate Report</button>`)}
@@ -36514,9 +36842,10 @@ function renderReports(){
         <button class="btn-sm" style="border:none; border-radius:8px; font-weight:600; background:${STATE.reportFilter===k?'var(--panel)':'transparent'}; color:${STATE.reportFilter===k?'var(--text-0)':'var(--text-2)'};" onclick="STATE.reportFilter='${k}'; render();">${l} <span style="opacity:.7">${n}</span></button>
       `).join('')}
     </div>
-    <div class="search-box" style="width:240px;">${icon('search',15)}<input placeholder="Search reports..." /></div>
+    <div class="search-box" style="width:240px;">${icon('search',15)}<input id="reportSearchInput" placeholder="Search reports..." value="${esc(STATE.reportSearch)}" oninput="STATE.reportSearch=this.value; render();" /></div>
   </div>
 
+  ${reports.length===0 ? emptyState('search','No reports match these filters','Try a different search term or status.') : `
   <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr);">
     ${reports.map(r=>{ const [ic,color]=REPORT_ICON[r.type]||['file','var(--accent-1)'];
       return `<div class="glass card-hover" style="padding:20px; display:flex; flex-direction:column;">
@@ -36524,8 +36853,8 @@ function renderReports(){
         <div class="icon-box" style="background:${color}1f; color:${color};">${icon(ic,19)}</div>
         ${statusBadge(r.status)}
       </div>
-      <div style="font-weight:700; font-size:16px; margin-bottom:8px;">${r.title}</div>
-      <p style="font-size:12.5px; color:var(--text-2); line-height:1.55; margin-bottom:14px; flex:1;">${r.summary}</p>
+      <div style="font-weight:700; font-size:16px; margin-bottom:8px;">${esc(r.title)}</div>
+      <p style="font-size:12.5px; color:var(--text-2); line-height:1.55; margin-bottom:14px; flex:1;">${esc(r.summary)}</p>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
         <span style="font-size:11.5px; color:var(--text-3);">${icon('clock',12)} ${fmtDate(r.date)}</span>
         <span class="badge badge-neutral">${r.type}</span>
@@ -36533,17 +36862,34 @@ function renderReports(){
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="viewReport('${r.id}')">${icon('eye',13)} View</button>
         ${r.status==='completed'?`<button class="btn btn-primary btn-sm" style="flex:1;" onclick="downloadReport('${r.id}')">${icon('download',13)} Download</button>`:''}
-        <button class="icon-btn" style="width:34px;height:34px;" onclick="toast('Share link copied to clipboard.','success')">${icon('share-2',14)}</button>
+        <button class="icon-btn" style="width:34px;height:34px;" onclick="shareReport('${r.id}')">${icon('share-2',14)}</button>
       </div>
     </div>`; }).join('')}
-  </div>
+  </div>`}
+  ${loadMoreButton('reportDisplayLimit', reports.length, totalReports, 30)}
   `;
+}
+function shareReport(id){
+  // There's no hosted public report view or share-token backend in this
+  // build, so a "share link" would be fake. This copies the report's real
+  // content instead — usable by any teammate with their own account, since
+  // firestore.rules already restricts report reads to the same org.
+  const r = DB.reports.find(x=>x.id===id);
+  if(!r) return;
+  const text = `${r.title} (${r.type}, ${fmtDate(r.date)})\n\n${r.summary||''}`;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text)
+      .then(()=>toast('Report details copied to clipboard.','success'))
+      .catch(()=>toast('Could not copy to clipboard — your browser may be blocking it.','danger','Error'));
+  } else {
+    toast('Clipboard access is not available in this browser.','warning');
+  }
 }
 function openGenerateReportModal(){
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Generate Report</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
     <div style="margin-bottom:14px;"><label>Report Type</label><select id="genReportType"><option>Compliance Report</option><option>Risk Report</option><option>Executive Summary</option><option>Audit Report</option></select></div>
-    <div style="margin-bottom:14px;"><label>Title</label><input id="genReportTitle" placeholder="e.g. Q3 2025 Compliance Summary" /></div>
+    <div style="margin-bottom:14px;"><label>Title</label><input id="genReportTitle" placeholder="e.g. Q3 2025 Compliance Summary" maxlength="150" /></div>
     <div style="margin-bottom:20px;"><label>Jurisdictions</label><select multiple style="height:100px;">${Object.values(COUNTRY_NAMES).map(c=>`<option selected>${c}</option>`).join('')}</select></div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -36566,8 +36912,8 @@ function viewReport(id){
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
       <div>${statusBadge(r.status)}</div><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
     </div>
-    <h3 style="font-size:20px; font-weight:800; margin-bottom:6px;">${r.title}</h3>
-    <div style="font-size:12.5px; color:var(--text-2); margin-bottom:12px;">${r.type} • Generated ${fmtDate(r.date)}${r.versionHistory && r.versionHistory.length ? ` • ${r.versionHistory.length} earlier version${r.versionHistory.length>1?'s':''}` : ''}</div>
+    <h3 style="font-size:20px; font-weight:800; margin-bottom:6px;">${esc(r.title)}</h3>
+    <div style="font-size:12.5px; color:var(--text-2); margin-bottom:12px;">${esc(r.type)} • Generated ${fmtDate(r.date)}${r.versionHistory && r.versionHistory.length ? ` • ${r.versionHistory.length} earlier version${r.versionHistory.length>1?'s':''}` : ''}</div>
     <div style="margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
       <label style="margin:0;">Executive Summary</label>
       ${r.versionHistory && r.versionHistory.length ? `<a style="font-size:12px; font-weight:600; color:var(--accent-1); cursor:pointer;" onclick="viewReportHistory('${r.id}')">View history</a>` : ''}
@@ -36590,7 +36936,7 @@ function viewReportHistory(id){
   const r = DB.reports.find(x=>x.id===id);
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-      <h3 style="font-size:19px; font-weight:800;">Version History — ${r.title}</h3>
+      <h3 style="font-size:19px; font-weight:800;">Version History — ${esc(r.title)}</h3>
       <button class="icon-btn" onclick="viewReport('${id}')">${icon('x',18)}</button>
     </div>
     ${(r.versionHistory||[]).slice().reverse().map(v=>`
@@ -36922,7 +37268,13 @@ function renderAlerts(){
   let alerts = DB.alerts;
   if(STATE.alertFilter==='unread') alerts = alerts.filter(a=>a.unread);
   if(STATE.alertFilter==='high') alerts = alerts.filter(a=>a.level==='Critical'||a.level==='High');
+  if(STATE.alertSearch.trim()){
+    const q = STATE.alertSearch.trim().toLowerCase();
+    alerts = alerts.filter(a=>a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q) || a.tag.toLowerCase().includes(q));
+  }
   const counts = { all:DB.alerts.length, unread:DB.alerts.filter(a=>a.unread).length, high:DB.alerts.filter(a=>a.level==='Critical'||a.level==='High').length };
+  const totalAlerts = alerts.length;
+  alerts = alerts.slice(0, STATE.alertDisplayLimit);
   return `
   ${pageHeader('Alerts & Notifications','Stay updated on compliance issues and regulatory changes.',
     `<button class="btn btn-ghost" onclick="markAllAlertsRead();">${icon('check',15)} Mark All Read</button>`)}
@@ -36933,22 +37285,22 @@ function renderAlerts(){
         <button class="btn-sm" style="border:none; border-radius:8px; font-weight:600; background:${STATE.alertFilter===k?'var(--panel)':'transparent'}; color:${STATE.alertFilter===k?'var(--text-0)':'var(--text-2)'};" onclick="STATE.alertFilter='${k}'; render();">${l} <span style="opacity:.7">${n}</span></button>
       `).join('')}
     </div>
-    <div class="search-box" style="width:240px;">${icon('search',15)}<input placeholder="Search alerts..." /></div>
+    <div class="search-box" style="width:240px;">${icon('search',15)}<input id="alertSearchInput" placeholder="Search alerts..." value="${esc(STATE.alertSearch)}" oninput="STATE.alertSearch=this.value; render();" /></div>
   </div>
 
   <div class="glass" style="overflow:hidden;">
-    ${alerts.length===0? emptyState('bell-off','No alerts here','You are all caught up.') : alerts.map(a=>`
+    ${alerts.length===0? emptyState('bell-off','No alerts here', STATE.alertSearch.trim()||STATE.alertFilter!=='all' ? 'Nothing matches these filters.' : 'You are all caught up.') : alerts.map(a=>`
     <div style="display:flex; gap:14px; padding:18px 20px; border-bottom:1px solid var(--border); background:${a.unread?'var(--panel-2)':'transparent'};">
       <div class="icon-box" style="background:${a.color}1f; color:${a.color};">${icon(a.icon,18)}</div>
       <div style="flex:1;">
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
-          <span class="badge ${a.level==='Critical'?'badge-danger':a.level==='High'?'badge-warning':'badge-neutral'}">${a.level}</span>
-          <span class="badge badge-neutral">${a.tag}</span>
+          <span class="badge ${a.level==='Critical'?'badge-danger':a.level==='High'?'badge-warning':'badge-neutral'}">${esc(a.level)}</span>
+          <span class="badge badge-neutral">${esc(a.tag)}</span>
           ${a.unread?'<span style="width:7px; height:7px; border-radius:50%; background:var(--accent-1);"></span>':''}
           <span style="margin-left:auto; font-size:12px; color:var(--text-3);">${fmtDate(a.date)}</span>
         </div>
-        <div style="font-weight:700; font-size:15px; margin-bottom:4px;">${a.title}</div>
-        <div style="font-size:13.5px; color:var(--text-2); line-height:1.5; margin-bottom:12px;">${a.body}</div>
+        <div style="font-weight:700; font-size:15px; margin-bottom:4px;">${esc(a.title)}</div>
+        <div style="font-size:13.5px; color:var(--text-2); line-height:1.5; margin-bottom:12px;">${esc(a.body)}</div>
         <div style="display:flex; gap:10px;">
           <button class="btn btn-primary btn-sm" onclick="alertDetails('${a.id}')">${icon('external-link',13)} View Details</button>
           <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${a.id}')">Dismiss</button>
@@ -36956,6 +37308,7 @@ function renderAlerts(){
       </div>
     </div>`).join('')}
   </div>
+  ${loadMoreButton('alertDisplayLimit', alerts.length, totalAlerts, 30)}
   `;
 }
 function markAllAlertsRead(){
@@ -36997,7 +37350,7 @@ function renderAssistant(){
       </div>`:''}
       <div style="display:flex; gap:10px; align-items:flex-end;">
         <button class="icon-btn" title="Attach document" onclick="toast('Attach a document from the Documents tab to include it as AI context.','info')">${icon('paperclip',17)}</button>
-        <textarea id="chatInput" rows="1" placeholder="Ask about a regulation, request a summary, or paste a policy excerpt..." style="resize:none; max-height:120px;" onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); submitChat(); }"></textarea>
+        <textarea id="chatInput" rows="1" maxlength="4000" placeholder="Ask about a regulation, request a summary, or paste a policy excerpt..." style="resize:none; max-height:120px;" onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); submitChat(); }"></textarea>
         <button class="btn btn-primary" style="padding:12px 16px;" onclick="submitChat()">${icon('send',17)}</button>
       </div>
     </div>
@@ -37009,9 +37362,9 @@ function chatBubble(m){
   return `<div style="display:flex; gap:12px; ${isUser?'flex-direction:row-reverse;':''} max-width:100%;">
     <div class="icon-box" style="background:${isUser?'var(--panel-2)':'var(--grad)'}; color:${isUser?'var(--text-1)':'#fff'}; flex-shrink:0;">${icon(isUser?'user':'sparkles',16)}</div>
     <div style="max-width:72%; background:${isUser?'var(--grad)':'var(--panel-2)'}; color:${isUser?'#fff':'var(--text-0)'}; padding:13px 16px; border-radius:16px; ${isUser?'border-bottom-right-radius:4px;':'border-bottom-left-radius:4px;'} font-size:14px; line-height:1.6;">
-      ${m.text}
+      ${esc(m.text)}
       ${m.sources ? `<div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.15); display:flex; gap:6px; flex-wrap:wrap;">
-        ${m.sources.map(s=>`<span class="badge badge-neutral" style="background:rgba(255,255,255,0.08); color:inherit; border-color:rgba(255,255,255,0.15);">${icon('link',11)} ${s}</span>`).join('')}
+        ${m.sources.map(s=>`<span class="badge badge-neutral" style="background:rgba(255,255,255,0.08); color:inherit; border-color:rgba(255,255,255,0.15);">${icon('link',11)} ${esc(s)}</span>`).join('')}
       </div>`:''}
     </div>
   </div>`;
@@ -37045,9 +37398,9 @@ function submitChat(){
 function scrollChatBottom(){ const el = document.getElementById('chatScroll'); if(el) el.scrollTop = el.scrollHeight; }
 function mockAIResponse(q){
   const ql = q.toLowerCase();
-  if(ql.includes('gdpr')) return { role:'assistant', text:'Based on your uploaded documents, your GDPR posture is at <b>82%</b>. The main open gap is Article 7 (explicit consent) — your current policy lacks a documented affirmative opt-in mechanism. I recommend adding a consent management layer and logging timestamp + scope for every capture event.', sources:['GDPR Compliance Policy v2.0.pdf','Article 7 — GDPR'] };
-  if(ql.includes('risk')) return { role:'assistant', text:'Your current overall risk score is <b>74/100</b> (Moderate Risk). Vendor Risk (58) and Operational Risk (65) are your highest-exposure categories. Financial exposure from open regulatory gaps is estimated at <b>$750K</b>.', sources:['Risk Assessment — Jun 2025'] };
-  if(ql.includes('retention') || (ql.includes('us') && ql.includes('germany'))) return { role:'assistant', text:'Germany (GDPR) requires data to be kept <b>"no longer than necessary"</b> for the stated purpose, with documented retention schedules. The US has no single federal retention standard — it varies by sector (e.g. SOX requires 7 years for financial records). I recommend adopting the stricter GDPR-aligned schedule org-wide for consistency.', sources:['GDPR Article 5(1)(e)','SOX Section 802'] };
+  if(ql.includes('gdpr')) return { role:'assistant', text:'Based on your uploaded documents, your GDPR posture is at 82%. The main open gap is Article 7 (explicit consent) — your current policy lacks a documented affirmative opt-in mechanism. I recommend adding a consent management layer and logging timestamp + scope for every capture event.', sources:['GDPR Compliance Policy v2.0.pdf','Article 7 — GDPR'] };
+  if(ql.includes('risk')) return { role:'assistant', text:'Your current overall risk score is 74/100 (Moderate Risk). Vendor Risk (58) and Operational Risk (65) are your highest-exposure categories. Financial exposure from open regulatory gaps is estimated at $750K.', sources:['Risk Assessment — Jun 2025'] };
+  if(ql.includes('retention') || (ql.includes('us') && ql.includes('germany'))) return { role:'assistant', text:'Germany (GDPR) requires data to be kept "no longer than necessary" for the stated purpose, with documented retention schedules. The US has no single federal retention standard — it varies by sector (e.g. SOX requires 7 years for financial records). I recommend adopting the stricter GDPR-aligned schedule org-wide for consistency.', sources:['GDPR Article 5(1)(e)','SOX Section 802'] };
   if(ql.includes('breach')) return { role:'assistant', text:'Here is a starting breach notification checklist: 1) Contain and assess scope within 24h. 2) Determine notification obligation per jurisdiction (GDPR: 72h to the supervisory authority). 3) Notify affected data subjects if high risk to rights/freedoms. 4) Document the incident and remediation steps for audit. Want me to generate this as a downloadable report?', sources:['GDPR Article 33-34'] };
   return { role:'assistant', text:'I looked across your knowledge base and documents for that. Based on current data, your compliance score is 78% with 12 high-risk issues open across 5 jurisdictions. Could you tell me a bit more about what you would like to focus on — a specific regulation, country, or document?' };
 }
@@ -37055,51 +37408,85 @@ function mockAIResponse(q){
 /* ================================================================
    TEAM MANAGEMENT
    ================================================================ */
-const ROLE_PERMS = [
-  { role:'Admin', desc:'Full access to all features, billing, and organization settings.', count:1 },
-  { role:'Compliance Officer', desc:'Manage compliance analyses, risk assessments, and reports.', count:1 },
-  { role:'Analyst', desc:'View and contribute to compliance analysis and documents.', count:2 },
-  { role:'User', desc:'View-only access to dashboards and reports.', count:1 },
+const ROLE_PERM_DESCRIPTIONS = [
+  { role:'Admin', desc:'Full access to all features, billing, and organization settings.' },
+  { role:'Compliance Officer', desc:'Manage compliance analyses, risk assessments, and reports.' },
+  { role:'Analyst', desc:'View and contribute to compliance analysis and documents.' },
+  { role:'User', desc:'View-only access to dashboards and reports.' },
 ];
+// Member counts here used to be hardcoded (1/1/2/1) regardless of who was
+// actually on the team — this derives them from DB.team so a role's count
+// always matches the members actually mapped to it.
+function getRolePerms(){
+  if(!LIVE_MODE){
+    const demoCounts = {Admin:1,'Compliance Officer':1,Analyst:2,User:1};
+    return ROLE_PERM_DESCRIPTIONS.map(r=>({...r, count:demoCounts[r.role]||0}));
+  }
+  const counts = {};
+  DB.team.forEach(t=>{ if(t.status==='Active') counts[t.role] = (counts[t.role]||0)+1; });
+  return ROLE_PERM_DESCRIPTIONS.map(r=>({...r, count:counts[r.role]||0}));
+}
+// Matches firestore.rules' users/invites update+delete rules (admin,
+// same org) — Edit/Delete/Invite used to be shown to every role and just
+// fail with a raw Firestore permission-denied toast for non-admins.
+function canManageTeam(){
+  return !LIVE_MODE || DB.currentUser.role === 'admin';
+}
 function renderTeam(){
+  const rolePerms = getRolePerms();
+  let members = DB.team;
+  if(STATE.teamRoleFilter!=='All Roles') members = members.filter(t=>t.role===STATE.teamRoleFilter);
+  if(STATE.teamStatusFilter!=='All Status') members = members.filter(t=>t.status===STATE.teamStatusFilter);
+  if(STATE.teamSearch.trim()){
+    const q = STATE.teamSearch.trim().toLowerCase();
+    members = members.filter(t=>t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
+  }
   return `
   ${pageHeader('Team Management','Manage team members and permissions.',
-    `<button class="btn btn-primary" onclick="openInviteModal()">${icon('user-plus',16)} Invite Member</button>`)}
+    canManageTeam() ? `<button class="btn btn-primary" onclick="openInviteModal()">${icon('user-plus',16)} Invite Member</button>` : '')}
 
   <div class="glass" style="padding:6px; margin-bottom:18px; display:inline-flex; gap:4px; border-radius:11px;">
     <button class="btn-sm" style="border:none; border-radius:8px; font-weight:600; background:${STATE.teamTab==='members'?'var(--panel-2)':'transparent'}; color:${STATE.teamTab==='members'?'var(--text-0)':'var(--text-2)'};" onclick="STATE.teamTab='members'; render();">Members <span style="opacity:.7">${DB.team.length}</span></button>
-    <button class="btn-sm" style="border:none; border-radius:8px; font-weight:600; background:${STATE.teamTab==='roles'?'var(--panel-2)':'transparent'}; color:${STATE.teamTab==='roles'?'var(--text-0)':'var(--text-2)'};" onclick="STATE.teamTab='roles'; render();">Roles & Permissions <span style="opacity:.7">${ROLE_PERMS.length}</span></button>
+    <button class="btn-sm" style="border:none; border-radius:8px; font-weight:600; background:${STATE.teamTab==='roles'?'var(--panel-2)':'transparent'}; color:${STATE.teamTab==='roles'?'var(--text-0)':'var(--text-2)'};" onclick="STATE.teamTab='roles'; render();">Roles & Permissions <span style="opacity:.7">${rolePerms.length}</span></button>
   </div>
 
   ${STATE.teamTab==='members' ? `
   <div class="glass" style="padding:14px 18px; margin-bottom:18px; display:flex; gap:12px; flex-wrap:wrap;">
-    <div class="search-box" style="flex:1; width:auto; min-width:220px;">${icon('search',16)}<input placeholder="Search members..." /></div>
-    <select style="width:auto;"><option>All Roles</option><option>Admin</option><option>Compliance Officer</option><option>Analyst</option><option>User</option></select>
-    <select style="width:auto;"><option>All Status</option><option>Active</option><option>Invited</option></select>
+    <div class="search-box" style="flex:1; width:auto; min-width:220px;">${icon('search',16)}<input id="teamSearchInput" placeholder="Search members..." value="${esc(STATE.teamSearch)}" oninput="STATE.teamSearch=this.value; render();" /></div>
+    <select style="width:auto;" onchange="STATE.teamRoleFilter=this.value; render();">
+      <option ${STATE.teamRoleFilter==='All Roles'?'selected':''}>All Roles</option>
+      ${['Admin','Compliance Officer','Analyst','User'].map(r=>`<option ${STATE.teamRoleFilter===r?'selected':''}>${r}</option>`).join('')}
+    </select>
+    <select style="width:auto;" onchange="STATE.teamStatusFilter=this.value; render();">
+      <option ${STATE.teamStatusFilter==='All Status'?'selected':''}>All Status</option>
+      ${['Active','Invited'].map(s=>`<option ${STATE.teamStatusFilter===s?'selected':''}>${s}</option>`).join('')}
+    </select>
   </div>
+  ${!canManageTeam() ? `<p style="font-size:12px; color:var(--text-3); margin-bottom:12px;">Only an organization admin can invite, edit, or remove members.</p>` : ''}
   <div class="glass" style="overflow-x:auto;">
+    ${members.length===0 ? emptyState('users','No members match these filters','Try a different search term, role, or status.') : `
     <table>
-      <thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Last Active</th><th>Joined</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Last Active</th><th>Joined</th><th class="sticky-col">Actions</th></tr></thead>
       <tbody>
-        ${DB.team.map(t=>`
+        ${members.map(t=>`
         <tr><td><div style="display:flex; align-items:center; gap:10px;">
-          <div style="width:36px; height:36px; border-radius:10px; background:${t.color}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px;">${t.name.split(' ').map(n=>n[0]).join('')}</div>
-          <div><div style="font-weight:600; color:var(--text-0); font-size:13.5px;">${t.name}</div><div style="font-size:12px; color:var(--text-3);">${t.email}</div></div></div></td>
+          <div style="width:36px; height:36px; border-radius:10px; background:${t.color}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px;">${esc(t.name.split(' ').map(n=>n[0]).join(''))}</div>
+          <div><div style="font-weight:600; color:var(--text-0); font-size:13.5px;">${esc(t.name)}</div><div style="font-size:12px; color:var(--text-3);">${esc(t.email)}</div></div></div></td>
         <td><span class="badge badge-info">${t.role}</span></td>
         <td>${statusBadge(t.status)}</td>
         <td>${t.lastActive==='—'?'—':fmtDate(t.lastActive)}</td>
         <td>${fmtDate(t.joined)}</td>
-        <td><div style="display:flex; gap:6px;"><button class="icon-btn" style="width:32px;height:32px;" onclick="toast('Editing '+ '${t.name}' +'\\'s permissions.','info')">${icon('pencil',14)}</button>
-          <button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="removeMember('${t.id}')">${icon('trash-2',14)}</button></div></td>
+        <td class="sticky-col"><div style="display:flex; gap:6px;">${!canManageTeam() ? '<span style="color:var(--text-3); font-size:12px;">—</span>' : `${t.id.startsWith('inv_')?'':`<button class="icon-btn" style="width:32px;height:32px;" onclick="editMember('${t.id}')">${icon('pencil',14)}</button>`}
+          <button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="removeMember('${t.id}')">${icon('trash-2',14)}</button>`}</div></td>
         </tr>`).join('')}
       </tbody>
-    </table>
+    </table>`}
   </div>` : `
   <div class="grid-cols-auto" style="grid-template-columns:repeat(2,1fr);">
-    ${ROLE_PERMS.map(r=>`
+    ${rolePerms.map(r=>`
     <div class="glass" style="padding:20px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <span style="font-weight:700; font-size:15.5px;">${r.role}</span><span class="badge badge-neutral">${r.count} member${r.count>1?'s':''}</span>
+        <span style="font-weight:700; font-size:15.5px;">${r.role}</span><span class="badge badge-neutral">${r.count} member${r.count===1?'':'s'}</span>
       </div>
       <p style="font-size:13px; color:var(--text-2); line-height:1.6;">${r.desc}</p>
     </div>`).join('')}
@@ -37109,7 +37496,7 @@ function renderTeam(){
 function openInviteModal(){
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Invite Member</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
-    <div style="margin-bottom:14px;"><label>Email address</label><input id="inviteEmail" type="email" placeholder="colleague@company.com" /></div>
+    <div style="margin-bottom:14px;"><label>Email address</label><input id="inviteEmail" type="email" placeholder="colleague@company.com" maxlength="254" /></div>
     <div style="margin-bottom:20px;"><label>Role</label><select id="inviteRole"><option>User</option><option>Analyst</option><option>Compliance Officer</option><option>Admin</option></select></div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -37121,52 +37508,144 @@ function sendInvite(){
   const email = document.getElementById('inviteEmail').value;
   const role = document.getElementById('inviteRole').value;
   if(!email){ toast('Enter an email address to invite.','warning'); return; }
+  if(DB.team.some(t => t.status === 'Invited' && t.email.toLowerCase() === email.toLowerCase())){
+    toast('An invite is already pending for ' + email + '.', 'warning');
+    return;
+  }
   DB.team.push({ id:'t_'+Date.now(), name:email.split('@')[0], email, role, status:'Invited', lastActive:'—', joined:new Date().toISOString().slice(0,10), color:'#5B7CFA' });
   closeModal(); render();
   toast('Invitation sent to '+email+'.','success','Invite sent');
 }
 function removeMember(id){ DB.team = DB.team.filter(t=>t.id!==id); render(); toast('Team member removed.','info'); }
+function editMember(id){
+  const t = DB.team.find(x=>x.id===id);
+  if(!t) return;
+  openModal(`
+    <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Edit Member</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
+    <div style="margin-bottom:14px;"><label>Name</label><div style="font-weight:600; font-size:14px;">${esc(t.name)}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">${esc(t.email)}</div></div>
+    <div style="margin-bottom:20px;"><label>Role</label><select id="editMemberRole">${['User','Analyst','Compliance Officer','Admin'].map(r=>`<option ${t.role===r?'selected':''}>${r}</option>`).join('')}</select></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMemberRole('${id}')">${icon('save',15)} Save Changes</button>
+    </div>
+  `);
+}
+function saveMemberRole(id){
+  // Demo-mode default: this gets replaced with a real Firestore updateDoc
+  // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
+  const t = DB.team.find(x=>x.id===id);
+  const role = document.getElementById('editMemberRole').value;
+  if(t) t.role = role;
+  closeModal(); render();
+  toast('Role updated.','success');
+}
 
 /* ================================================================
    REGULATORY MONITORING
    ================================================================ */
+// In LIVE_MODE there's no external regulatory-change monitor behind this
+// build (that used to be a Cloud Function; see SETUP.md), so instead of
+// showing a feed hardcoded to GDPR/Germany + MAS/Singapore regardless of
+// what's actually loaded, the feed is derived from the org's real
+// DB.regulations — the same source of truth as Knowledge Base and
+// Comparison. Demo mode keeps the original static feed since there's no
+// backend behind it to derive from.
+function computeRegulatoryFeed(){
+  if(!LIVE_MODE) return DB.regulatoryFeed;
+  return DB.regulations.map(r=>{
+    const gapCount = (r.requirements||[]).filter(x=>x.status==='gap').length;
+    const partialCount = (r.requirements||[]).filter(x=>x.status==='partial').length;
+    const type = gapCount>0 ? 'Amendment' : partialCount>0 ? 'Updated' : 'New';
+    return {
+      id: r.id, type, country: r.country, domain: r.domain,
+      title: gapCount>0 ? `${r.short}: ${gapCount} open requirement gap${gapCount>1?'s':''}` : `${r.short}: requirements up to date`,
+      body: r.description,
+      reg: r.short, effective: r.updated || new Date().toISOString().slice(0,10),
+      impact: Math.min(95, 35 + gapCount*25 + partialCount*10),
+      tags: r.tags || [],
+      requirements: r.requirements || [],
+    };
+  }).sort((a,b)=> String(b.effective).localeCompare(String(a.effective)));
+}
 function renderMonitoring(){
+  let feed = computeRegulatoryFeed();
+  if(STATE.monitorCountry!=='All Countries') feed = feed.filter(f=>f.country===STATE.monitorCountry);
+  if(STATE.monitorType!=='All Types') feed = feed.filter(f=>f.type===STATE.monitorType);
+  if(STATE.monitorSearch.trim()){
+    const q = STATE.monitorSearch.trim().toLowerCase();
+    feed = feed.filter(f=>f.title.toLowerCase().includes(q) || f.body.toLowerCase().includes(q) || f.reg.toLowerCase().includes(q));
+  }
+  const allFeed = computeRegulatoryFeed();
+  const countriesTracked = new Set(allFeed.map(f=>f.country)).size;
+  const totalFeed = feed.length;
+  feed = feed.slice(0, STATE.monitorDisplayLimit);
   return `
   ${pageHeader('Regulatory Monitoring','Track regulatory changes across your monitored jurisdictions in real-time.')}
   <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
-    ${statCard('Recent Updates','4','last 30 days','radio','var(--accent-1)')}
-    ${statCard('High Impact','2','need review','alert-triangle','var(--warning)')}
-    ${statCard('Countries','5','monitored','globe','var(--success)')}
-    ${statCard('Regulations Tracked','6','across all domains','file-text','var(--accent-2)')}
+    ${statCard('Recent Updates', allFeed.length, LIVE_MODE?'in your regulation database':'last 30 days','radio','var(--accent-1)')}
+    ${statCard('High Impact', allFeed.filter(f=>f.impact>=70).length,'need review','alert-triangle','var(--warning)')}
+    ${statCard('Countries', countriesTracked,'monitored','globe','var(--success)')}
+    ${statCard('Regulations Tracked', allFeed.length,'across all domains','file-text','var(--accent-2)')}
   </div>
   <div class="glass" style="padding:16px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
-    <div class="search-box" style="flex:1; width:auto; min-width:220px;">${icon('search',16)}<input placeholder="Search updates..." /></div>
-    <select style="width:auto;"><option>All Countries</option>${Object.values(COUNTRY_NAMES).map(c=>`<option>${c}</option>`).join('')}</select>
-    <select style="width:auto;"><option>All Types</option><option>New</option><option>Amendment</option><option>Updated</option></select>
+    <div class="search-box" style="flex:1; width:auto; min-width:220px;">${icon('search',16)}<input id="monitorSearchInput" placeholder="Search updates..." value="${esc(STATE.monitorSearch)}" oninput="STATE.monitorSearch=this.value; render();" /></div>
+    <select style="width:auto;" onchange="STATE.monitorCountry=this.value; render();">
+      <option ${STATE.monitorCountry==='All Countries'?'selected':''}>All Countries</option>
+      ${Object.values(COUNTRY_NAMES).map(c=>`<option ${STATE.monitorCountry===c?'selected':''}>${c}</option>`).join('')}
+    </select>
+    <select style="width:auto;" onchange="STATE.monitorType=this.value; render();">
+      <option ${STATE.monitorType==='All Types'?'selected':''}>All Types</option>
+      ${['New','Amendment','Updated'].map(t=>`<option ${STATE.monitorType===t?'selected':''}>${t}</option>`).join('')}
+    </select>
   </div>
   <div class="glass" style="padding:22px;">
     <div style="font-weight:700; font-size:16px; margin-bottom:2px;">Regulatory Feed</div>
     <div style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">Recent changes to your monitored regulations</div>
-    ${DB.regulatoryFeed.map(f=>`
+    ${feed.length===0 ? emptyState('radio','No updates match these filters','Try a different country, type, or search term.') :
+    feed.map(f=>`
     <div style="display:flex; gap:16px; padding:18px 0; border-bottom:1px solid var(--border);">
       <div class="icon-box" style="background:${f.type==='New'?'var(--success-bg)':f.type==='Amendment'?'var(--warning-bg)':'rgba(91,124,250,0.14)'}; color:${f.type==='New'?'var(--success)':f.type==='Amendment'?'var(--warning)':'var(--accent-1)'};">${icon('file-text',17)}</div>
       <div style="flex:1;">
         <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
-          <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${f.type}</span>
-          <span style="font-size:12.5px; color:var(--text-2); display:flex; align-items:center; gap:4px;">${icon('globe',12)} ${f.country}</span>
-          <span style="font-size:12.5px; color:var(--text-3);">${f.domain}</span>
+          <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(f.type)}</span>
+          <span style="font-size:12.5px; color:var(--text-2); display:flex; align-items:center; gap:4px;">${icon('globe',12)} ${esc(f.country)}</span>
+          <span style="font-size:12.5px; color:var(--text-3);">${esc(f.domain)}</span>
         </div>
-        <div style="font-weight:700; font-size:15px; margin-bottom:6px;">${f.title}</div>
-        <p style="font-size:13.5px; color:var(--text-2); line-height:1.55; margin-bottom:10px;">${f.body}</p>
+        <div style="font-weight:700; font-size:15px; margin-bottom:6px;">${esc(f.title)}</div>
+        <p style="font-size:13.5px; color:var(--text-2); line-height:1.55; margin-bottom:10px;">${esc(f.body)}</p>
         <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-3); margin-bottom:10px;">
-          <span>${icon('bookmark',12)} ${f.reg}</span><span>${icon('calendar',12)} Effective: ${fmtDate(f.effective)}</span><span>${icon('trending-up',12)} Impact Score: ${f.impact}</span>
+          <span>${icon('bookmark',12)} ${esc(f.reg)}</span><span>${icon('calendar',12)} Effective: ${fmtDate(String(f.effective).slice(0,10))}</span><span>${icon('trending-up',12)} Impact Score: ${f.impact}</span>
         </div>
-        <div style="display:flex; gap:6px; flex-wrap:wrap;">${f.tags.map(t=>`<span class="badge badge-neutral">${t}</span>`).join('')}</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">${f.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
       </div>
-      <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer; white-space:nowrap; align-self:flex-start;" onclick="toast('Opening full regulatory bulletin...','info')">View Details ${icon('chevron-right',13)}</a>
+      <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer; white-space:nowrap; align-self:flex-start;" onclick="viewFeedDetails('${f.id}')">View Details ${icon('chevron-right',13)}</a>
     </div>`).join('')}
   </div>
+  ${loadMoreButton('monitorDisplayLimit', feed.length, totalFeed, 20)}
   `;
+}
+function viewFeedDetails(id){
+  const f = computeRegulatoryFeed().find(x=>x.id===id);
+  if(!f){ toast('This update is no longer available.','warning'); return; }
+  openModal(`
+    <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
+      <div style="display:flex; gap:8px;"><span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(f.type)}</span><span class="badge badge-info">${esc(f.country)}</span><span class="badge badge-neutral">${esc(f.domain)}</span></div>
+      <button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
+    </div>
+    <h3 style="font-size:19px; font-weight:800; margin-bottom:8px;">${esc(f.title)}</h3>
+    <p style="font-size:13.5px; color:var(--text-2); line-height:1.6; margin-bottom:16px;">${esc(f.body)}</p>
+    <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:12.5px; color:var(--text-3); margin-bottom:18px;">
+      <span>${icon('bookmark',13)} ${esc(f.reg)}</span><span>${icon('calendar',13)} Effective: ${fmtDate(String(f.effective).slice(0,10))}</span><span>${icon('trending-up',13)} Impact Score: ${f.impact}</span>
+    </div>
+    ${(f.requirements&&f.requirements.length) ? `
+    <div style="font-weight:700; font-size:14.5px; margin-bottom:10px;">Requirements</div>
+    ${f.requirements.map(req=>`
+      <div style="display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">
+        <span style="color:${req.status==='met'?'var(--success)':req.status==='gap'?'var(--danger)':'var(--warning)'}; margin-top:2px;">${icon(req.status==='met'?'check-circle-2':req.status==='gap'?'x-circle':'alert-triangle',15)}</span>
+        <div><div style="font-weight:600; font-size:13px;">${req.title}</div><div style="font-size:12px; color:var(--text-2); margin-top:2px;">${req.desc}</div></div>
+      </div>`).join('')}` : ''}
+    <div style="display:flex; justify-content:flex-end; margin-top:18px;"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>
+  `, 620);
 }
 
 /* ================================================================
@@ -37177,10 +37656,52 @@ const SETTINGS_TABS = [
   {key:'notifications', label:'Notifications', icon:'bell'}, {key:'billing', label:'Billing', icon:'credit-card'},
   {key:'api', label:'API Keys', icon:'key'}, {key:'audit', label:'Audit Logs', icon:'file-text'},
 ];
+// This build has no connected payment provider (no Stripe, no invoicing —
+// see SETUP.md's "no Blaze, no billing account" design). Upgrading a plan
+// here is a real, self-serve change to the organization's tier/seat limit
+// in Firestore (the same thing createOrganizationClient sets on signup),
+// not a payment flow — no card is charged because there's nothing here to
+// charge it with.
+const PLANS = [
+  { key:'starter', label:'Starter', seats:5, price:0 },
+  { key:'professional', label:'Professional', seats:25, price:799 },
+  { key:'enterprise', label:'Enterprise', seats:100, price:null },
+];
+const PLAN_PRICES = { Starter:'$0', Professional:'$799', Enterprise:'Contact sales' };
+function openUpgradePlanModal(){
+  openModal(`
+    <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Upgrade Plan</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
+    <p style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">${LIVE_MODE ? "This build has no connected payment provider, so changing plans here updates your organization's tier and seat limit directly — no card is charged." : 'Demo mode — plan changes here are not saved.'}</p>
+    ${PLANS.map(p=>`
+    <div class="glass" style="padding:16px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+      <div><div style="font-weight:700; font-size:15px;">${p.label}</div><div style="font-size:12.5px; color:var(--text-2);">${p.seats} seats</div></div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="font-weight:700;">${p.price==null?'Contact sales':(p.price===0?'Free':'$'+p.price+'/mo')}</div>
+        ${DB.organization.plan===p.label ? `<span class="badge badge-success">Current</span>` : `<button class="btn btn-primary btn-sm" onclick="changePlan('${p.key}')">Select</button>`}
+      </div>
+    </div>`).join('')}
+  `, 520);
+}
+function changePlan(planKey){
+  // Demo-mode default: this gets replaced with a real Firestore updateDoc
+  // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
+  const p = PLANS.find(x=>x.key===planKey);
+  if(!p) return;
+  DB.organization.plan = p.label;
+  DB.organization.seats = p.seats;
+  closeModal(); render();
+  toast('Switched to the '+p.label+' plan.','success');
+}
+function viewInvoices(){
+  openModal(`
+    <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Invoices</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
+    ${emptyState('credit-card','No invoices available', LIVE_MODE ? 'This build has no connected payment provider, so no invoices are generated. Connect Stripe (or another billing provider) to enable real invoicing.' : 'Demo mode has no billing history to show.')}
+    <div style="display:flex; justify-content:flex-end; margin-top:8px;"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>
+  `, 480);
+}
 function renderSettings(){
   return `
-  ${pageHeader('Settings','Manage your account and preferences.',
-    `<button class="btn btn-primary" onclick="toast('Your changes have been saved.','success','Saved')">${icon('save',15)} Save Changes</button>`)}
+  ${pageHeader('Settings','Manage your account and preferences.')}
   <div class="settings-layout" style="display:grid; grid-template-columns:260px 1fr; gap:20px; align-items:flex-start;">
     <div class="glass" style="padding:8px;">
       ${SETTINGS_TABS.map(t=>`
@@ -37195,6 +37716,18 @@ function renderSettings(){
   `;
 }
 function settingsField(label, inputHtml){ return `<div style="margin-bottom:16px;"><label>${label}</label>${inputHtml}</div>`; }
+const NOTIFICATION_PREF_KEYS = [
+  { key:'criticalGaps', label:'Critical compliance gaps' },
+  { key:'regulatoryUpdates', label:'Regulatory updates' },
+  { key:'weeklyDigest', label:'Weekly digest email' },
+  { key:'reportComplete', label:'Report generation complete' },
+  { key:'teamActivity', label:'Team activity' },
+];
+const NOTIFICATION_PREF_DEFAULTS = { criticalGaps:true, regulatoryUpdates:true, weeklyDigest:true, reportComplete:false, teamActivity:false };
+function notificationPrefEnabled(key){
+  const prefs = (DB.currentUser && DB.currentUser.notificationPrefs) || NOTIFICATION_PREF_DEFAULTS;
+  return prefs[key] !== undefined ? prefs[key] : NOTIFICATION_PREF_DEFAULTS[key];
+}
 function renderSettingsPanel(){
   const u = DB.currentUser;
   if(STATE.settingsTab==='profile') return `
@@ -37206,28 +37739,38 @@ function renderSettingsPanel(){
       <input id="avatarInput" type="file" accept="image/jpeg,image/png" style="display:none;" onchange="handleAvatarUpload(this.files)" /></div>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:1fr 1fr;">
-      ${settingsField('Full Name', `<input value="${u.name}" />`)}
-      ${settingsField('Email', `<input value="${u.email}" />`)}
-      ${settingsField('Role', `<input value="${u.role}" disabled style="opacity:.6;" />`)}
-      ${settingsField('Organization', `<input value="${u.org}" />`)}
-    </div>`;
+      ${settingsField('Full Name', `<input id="profileNameInput" value="${esc(u.name)}" maxlength="120" />`)}
+      ${settingsField('Email', `<input value="${esc(u.email)}" disabled style="opacity:.6;" />`)}
+      ${settingsField('Role', `<input value="${esc(u.role)}" disabled style="opacity:.6;" />`)}
+      ${settingsField('Organization', LIVE_MODE && u.role!=='admin'
+        ? `<input value="${esc(u.org)}" disabled style="opacity:.6;" />`
+        : `<input id="profileOrgInput" value="${esc(u.org)}" maxlength="120" />`)}
+    </div>
+    ${LIVE_MODE && u.role!=='admin' ? `<p style="font-size:11.5px; color:var(--text-3); margin-top:2px;">Only an organization admin can rename the organization.</p>` : ''}
+    <p style="font-size:11.5px; color:var(--text-3); margin-top:8px;">Email can't be changed here — it's tied to your sign-in method.</p>
+    <button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="saveProfileChanges()">${icon('save',14)} Save Changes</button>`;
   if(STATE.settingsTab==='security') return `
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">Security</div>
     <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">Manage your password and authentication</div>
-    ${settingsField('Current Password', `<input type="password" placeholder="••••••••" />`)}
-    ${settingsField('New Password', `<input type="password" placeholder="••••••••" />`)}
-    <div class="glass" style="padding:16px; margin-top:16px; display:flex; justify-content:space-between; align-items:center; background:var(--bg-1);">
-      <div><div style="font-weight:700; font-size:14px;">Two-Factor Authentication</div><div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">Add an extra layer of security to your account</div></div>
-      <button class="btn btn-ghost btn-sm" onclick="toast('Scan the QR code with your authenticator app to enable 2FA.','info')">Enable</button>
+    ${LIVE_MODE && !(fbAuth.currentUser && fbAuth.currentUser.providerData.some(p=>p.providerId==='password')) ? `
+    <p style="font-size:12.5px; color:var(--text-2);">Your account signs in with Google — there's no password to change here.</p>` : `
+    ${settingsField('Current Password', `<input id="currentPasswordInput" type="password" placeholder="••••••••" />`)}
+    ${settingsField('New Password', `<input id="newPasswordInput" type="password" placeholder="••••••••" />`)}
+    <button class="btn btn-primary btn-sm" onclick="changePassword()">${icon('save',14)} Update Password</button>
+    `}
+    <div class="glass" style="padding:16px; margin-top:20px; display:flex; justify-content:space-between; align-items:center; background:var(--bg-1);">
+      <div><div style="font-weight:700; font-size:14px;">Two-Factor Authentication</div><div style="font-size:12.5px; color:var(--text-2); margin-top:2px;">Not available in this build — it needs Firebase's Identity Platform tier, which this app deliberately doesn't use (see SETUP.md).</div></div>
+      <button class="btn btn-ghost btn-sm" disabled style="opacity:.5; cursor:not-allowed;">Enable</button>
     </div>`;
   if(STATE.settingsTab==='notifications') return `
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">Notification Preferences</div>
-    <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">Choose what you want to be notified about</div>
-    ${['Critical compliance gaps','Regulatory updates','Weekly digest email','Report generation complete','Team activity'].map((l,i)=>`
+    <div style="font-size:13px; color:var(--text-2); margin-bottom:14px;">Choose what shows up in your in-app Alerts feed</div>
+    ${LIVE_MODE ? `<p style="font-size:11.5px; color:var(--text-3); margin-bottom:18px;">These control which alerts are generated for you in-app. Only invitation and password-reset emails are actually sent by this build (see SETUP.md) — the others don't send email regardless of this toggle.</p>` : ''}
+    ${NOTIFICATION_PREF_KEYS.map(({key,label})=>`
     <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid var(--border);">
-      <span style="font-size:13.5px; font-weight:600;">${l}</span>
+      <span style="font-size:13.5px; font-weight:600;">${label}</span>
       <label style="display:inline-flex; align-items:center; cursor:pointer;">
-        <input type="checkbox" ${i<3?'checked':''} style="width:auto;" />
+        <input type="checkbox" ${notificationPrefEnabled(key)?'checked':''} style="width:auto;" onchange="toggleNotificationPref('${key}', this.checked)" />
       </label>
     </div>`).join('')}`;
   if(STATE.settingsTab==='billing') return `
@@ -37235,24 +37778,27 @@ function renderSettingsPanel(){
     <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">Manage your subscription</div>
     <div class="glass" style="padding:20px; background:var(--grad-soft); margin-bottom:20px;">
       <div style="display:flex; justify-content:space-between;">
-        <div><div style="font-weight:800; font-size:18px;">Professional Plan</div><div style="font-size:13px; color:var(--text-2);">${DB.organization.seatsUsed} of ${DB.organization.seats} seats used</div></div>
-        <div style="text-align:right;"><div style="font-size:24px; font-weight:800;">$799<span style="font-size:13px; font-weight:500; color:var(--text-2);">/mo</span></div></div>
+        <div><div style="font-weight:800; font-size:18px;">${DB.organization.plan} Plan</div><div style="font-size:13px; color:var(--text-2);">${DB.organization.seatsUsed} of ${DB.organization.seats} seats used</div></div>
+        <div style="text-align:right;"><div style="font-size:24px; font-weight:800;">${PLAN_PRICES[DB.organization.plan] || '—'}<span style="font-size:13px; font-weight:500; color:var(--text-2);">${PLAN_PRICES[DB.organization.plan]?'/mo':''}</span></div></div>
       </div>
     </div>
-    <div style="display:flex; gap:10px;"><button class="btn btn-primary btn-sm" onclick="toast('Redirecting to plan comparison...','info')">Upgrade Plan</button><button class="btn btn-ghost btn-sm" onclick="toast('Invoice history downloaded.','success')">View Invoices</button></div>`;
+    ${LIVE_MODE && DB.currentUser.role!=='admin' ? `<p style="font-size:12.5px; color:var(--text-3); margin-bottom:12px;">Only an organization admin can change the plan or view invoices.</p>` : ''}
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-primary btn-sm" ${LIVE_MODE && DB.currentUser.role!=='admin' ? 'disabled' : ''} onclick="openUpgradePlanModal()">Upgrade Plan</button>
+      <button class="btn btn-ghost btn-sm" onclick="viewInvoices()">View Invoices</button>
+    </div>`;
   if(STATE.settingsTab==='api') return `
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">API Keys</div>
     <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">Manage programmatic access to the ORDINEX API</div>
-    <div class="glass" style="padding:16px; background:var(--bg-1); display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <div><div style="font-weight:700; font-size:13.5px;">Production Key</div><div class="font-mono" style="font-size:12.5px; color:var(--text-2); margin-top:4px;">ord_live_••••••••••••8f2a</div></div>
-      <div style="display:flex; gap:8px;"><button class="btn btn-ghost btn-sm" onclick="toast('Key copied to clipboard.','success')">Copy</button><button class="btn btn-ghost btn-sm" onclick="toast('Key revoked.','warning')">Revoke</button></div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="toast('New API key generated.','success')">${icon('plus',14)} Generate New Key</button>`;
+    ${emptyState('key','No API available', LIVE_MODE
+      ? "This build has no server of its own to authenticate a key against — it talks to Firestore directly from the browser under firestore.rules, and to Gemini with its own domain-restricted key (see SETUP.md). There's nothing here for a generated key to actually gate."
+      : 'Demo mode — this tab has no backing API in this build.')}`;
   if(STATE.settingsTab==='audit') return `
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">Audit Logs</div>
     <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">A record of security-relevant actions in your organization</div>
-    <table><thead><tr><th>Action</th><th>Actor</th><th>Target</th><th>Time</th><th>Status</th></tr></thead>
-    <tbody>${DB.auditLogs.map(l=>`<tr><td style="color:var(--text-0); font-weight:600;">${l.action}</td><td>${l.actor}</td><td>${l.target}</td><td class="font-mono" style="font-size:12px;">${l.time}</td><td>${statusBadge(l.status)}</td></tr>`).join('')}</tbody></table>`;
+    ${LIVE_MODE ? `<p style="font-size:11.5px; color:var(--text-3); margin-bottom:14px;">Showing the most recent 100 entries — older activity isn't listed here.</p>` : ''}
+    <div style="overflow-x:auto;"><table><thead><tr><th>Action</th><th>Actor</th><th>Target</th><th>Time</th><th>Status</th></tr></thead>
+    <tbody>${DB.auditLogs.map(l=>`<tr><td style="color:var(--text-0); font-weight:600;">${esc(l.action)}</td><td>${esc(l.actor)}</td><td>${esc(l.target)}</td><td class="font-mono" style="font-size:12px;">${esc(l.time)}</td><td>${statusBadge(l.status)}</td></tr>`).join('')}</tbody></table></div>`;
   return '';
 }
 
@@ -37261,7 +37807,11 @@ function renderSettingsPanel(){
    ================================================================ */
 function renderAdmin(){
   const stats = DB.platformStats;
-  const orgs = LIVE_MODE ? (DB.adminOrgs||[]) : DEMO_ADMIN_ORGS;
+  let orgs = LIVE_MODE ? (DB.adminOrgs||[]) : DEMO_ADMIN_ORGS;
+  if(STATE.adminOrgSearch.trim()){
+    const q = STATE.adminOrgSearch.trim().toLowerCase();
+    orgs = orgs.filter(o=>(o.name||'').toLowerCase().includes(q));
+  }
   return `
   ${pageHeader('Admin Console','Platform-wide oversight across all organizations.')}
   ${LIVE_MODE ? `<div class="glass" style="padding:14px 18px; margin-bottom:18px; display:flex; gap:10px; align-items:center; background:var(--bg-1);">
@@ -37278,15 +37828,16 @@ function renderAdmin(){
     ${statCard('AI Requests (24h)', LIVE_MODE?'Not tracked':'58,204', LIVE_MODE?'no usage logging wired in':'Gemini-powered','sparkles', LIVE_MODE?'var(--text-3)':'var(--accent-3)')}
   </div>
   <div class="glass" style="padding:22px;">
-    <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
       <div style="font-weight:700; font-size:16px;">Organizations</div>
-      <div class="search-box" style="width:240px;">${icon('search',15)}<input placeholder="Search organizations..." /></div>
+      <div class="search-box" style="width:240px;">${icon('search',15)}<input id="adminOrgSearchInput" placeholder="Search organizations..." value="${esc(STATE.adminOrgSearch)}" oninput="STATE.adminOrgSearch=this.value; render();" /></div>
     </div>
-    <table>
+    ${LIVE_MODE ? `<p style="font-size:11.5px; color:var(--text-3); margin-bottom:12px;">Showing the most recent 200 organizations by creation date — older ones aren't listed here.</p>` : ''}
+    <div style="overflow-x:auto;"><table>
       <thead><tr><th>Organization</th><th>Plan</th><th>Seats</th><th>Created</th></tr></thead>
       <tbody>${orgs.map(o=>`
-        <tr><td style="font-weight:600; color:var(--text-0);">${o.name}</td><td><span class="badge badge-info">${o.plan}</span></td><td>${o.seats}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations yet.</td></tr>`}</tbody>
-    </table>
+        <tr><td style="font-weight:600; color:var(--text-0);">${esc(o.name)}</td><td><span class="badge badge-info">${esc(o.plan)}</span></td><td>${esc(o.seats)}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations match.</td></tr>`}</tbody>
+    </table></div>
   </div>
   `;
 }
@@ -37483,9 +38034,9 @@ if (LIVE_MODE) {
     const prompt = `You are a regulatory compliance analyst. Analyze the following document text and:
 1. Identify which regulatory domain it most likely relates to (Data Privacy, Finance, HR, Cybersecurity, or Corporate Governance).
 2. Give an overall compliance score from 0-100 based on how well the content reflects sound compliance practice.
-3. List up to 5 specific gaps or risks found, each with a severity of High, Medium, or Low.
+3. List up to 5 specific gaps or risks found, each with a severity of High, Medium, or Low, and a concrete recommendation to remediate it (1-3 sentences, actionable).
 Respond ONLY as JSON in this exact shape:
-{"domain":"...","score":0,"gaps":[{"title":"...","severity":"High","description":"..."}]}
+{"domain":"...","score":0,"gaps":[{"title":"...","severity":"High","description":"...","recommendation":"..."}]}
 
 DOCUMENT TEXT:
 """
@@ -37559,6 +38110,7 @@ ${text.slice(0, 15000)}
       await fb.addDoc(fb.collection(fbDb, 'complianceIssues'), {
         organizationId: orgId, documentId: docId, title: g.title, description: g.description || '',
         severity: g.severity, status: 'Open', createdAt: fb.serverTimestamp(),
+        recommendation: g.recommendation || '',
       });
       await notifyOrgOfHighSeverityIssue(orgId, g.title);
     }
@@ -37573,6 +38125,7 @@ ${text.slice(0, 15000)}
   let unsubNotifications = null;
   let unsubTeamUsers = null;
   let unsubInvites = null;
+  let unsubOrgDoc = null;
   let unsubAuditLogs = null;
   let unsubRisk = null;
   let subscribedNotifUid = null;
@@ -37632,6 +38185,7 @@ ${text.slice(0, 15000)}
       reg: sourceDoc ? sourceDoc.domain : 'Unclassified',
       severity: v.severity || 'Low', status: v.status || 'Open',
       created, documentId: v.documentId || null, organizationId: v.organizationId,
+      recommendation: v.recommendation || '',
     };
   }
 
@@ -37644,9 +38198,17 @@ ${text.slice(0, 15000)}
       fb.orderBy('createdAt', 'desc')
     );
     unsubIssues = fb.onSnapshot(issuesQuery, (snap) => {
+      // Without this, whichever of documents/issues resolved first flipped
+      // the loading gate open on its own (docsReady was the only flag it
+      // checked), so the dashboard could render using this listener's
+      // still-default demo data for however long it took this snapshot to
+      // arrive — a race that made KPIs like "High Risk Issues" look
+      // different on different page loads depending on network timing.
+      const firstLoad = !STATE.issuesReady;
       DB.complianceIssues = snap.docs.map((d) => normalizeFirestoreIssue(d.id, d.data()));
       recomputeDerivedAnalytics();
-      if (STATE.route === 'app' && ['dashboard','analytics','compliance'].includes(STATE.appPage)) render();
+      STATE.issuesReady = true;
+      if (firstLoad || (STATE.route === 'app' && ['dashboard','analytics','compliance'].includes(STATE.appPage))) render();
     }, (err) => console.error('Compliance issues listener error:', err));
   }
 
@@ -37771,7 +38333,11 @@ ${text.slice(0, 15000)}
     if (!orgId) return;
     let activeMembers = [];
     let pendingInvites = [];
-    const rebuild = () => { DB.team = [...activeMembers, ...pendingInvites]; if (STATE.route === 'app' && STATE.appPage === 'team') render(); };
+    const rebuild = () => {
+      DB.team = [...activeMembers, ...pendingInvites];
+      DB.organization.seatsUsed = activeMembers.length; // real seat usage, not the hardcoded demo default
+      if (STATE.route === 'app' && (STATE.appPage === 'team' || (STATE.appPage === 'settings' && STATE.settingsTab === 'billing'))) render();
+    };
 
     const usersQuery = fb.query(fb.collection(fbDb, 'users'), fb.where('organizationId', '==', orgId));
     unsubTeamUsers = fb.onSnapshot(usersQuery, (snap) => {
@@ -37800,6 +38366,27 @@ ${text.slice(0, 15000)}
     }
   }
 
+  const PLAN_LABELS = { starter: 'Starter', professional: 'Professional', enterprise: 'Enterprise' };
+  // The Billing tab used to always show the hardcoded demo org ("Professional
+  // Plan", "$799/mo", "5 of 25 seats") no matter what was actually in
+  // Firestore — this is what keeps DB.organization (plan, seats, price)
+  // in sync with the real organizations/{orgId} doc.
+  function subscribeToOrgDoc(orgId) {
+    if (unsubOrgDoc) { unsubOrgDoc(); unsubOrgDoc = null; }
+    if (!orgId) return;
+    unsubOrgDoc = fb.onSnapshot(fb.doc(fbDb, 'organizations', orgId), (snap) => {
+      if (!snap.exists()) return;
+      const v = snap.data();
+      DB.organization = {
+        ...DB.organization,
+        name: v.name || DB.organization.name,
+        plan: PLAN_LABELS[v.plan] || v.plan || 'Starter',
+        seats: v.seats || 0,
+      };
+      if (STATE.route === 'app' && STATE.appPage === 'settings' && STATE.settingsTab === 'billing') render();
+    }, (err) => console.error('Organization listener error:', err));
+  }
+
   function normalizeFirestoreAuditLog(id, v) {
     let time = '—';
     if (v.timestamp && typeof v.timestamp.toDate === 'function') time = v.timestamp.toDate().toISOString().replace('T', ' ').slice(0, 16);
@@ -37820,7 +38407,16 @@ ${text.slice(0, 15000)}
     if (!orgId) return;
     const q = fb.query(fb.collection(fbDb, 'riskAssessments'), fb.where('organizationId', '==', orgId), fb.orderBy('createdAt', 'desc'), fb.limit(1));
     unsubRisk = fb.onSnapshot(q, (snap) => {
-      if (snap.empty) { DB.latestRisk = null; return; }
+      if (snap.empty) {
+        // Without also clearing these, a brand-new org that's never run a
+        // real assessment kept showing the hardcoded demo riskCategories/
+        // riskRecommendations arrays (fake 72/65/82/58 scores, fake
+        // findings like "Missing DPAs") as if they were real — DB.latestRisk
+        // going null only blanked the top-line score, not the detail below it.
+        DB.latestRisk = null; DB.riskCategories = []; DB.riskRecommendations = [];
+        if (STATE.route === 'app' && ['dashboard','risk'].includes(STATE.appPage)) render();
+        return;
+      }
       const v = snap.docs[0].data();
       DB.latestRisk = {
         overallScore: typeof v.overallScore === 'number' ? v.overallScore : null,
@@ -37828,7 +38424,11 @@ ${text.slice(0, 15000)}
         categories: v.categories || [],
         recommendations: v.recommendations || [],
       };
-      DB.riskCategories = (v.categories || []).map((c, i) => ({ id: 'rc' + i, name: c.name, score: c.score, level: c.level, desc: (c.findings || []).join(' '), tags: [] }));
+      // c.findings is the only per-category detail Gemini actually returns
+      // (see the prompt in startNewRiskAssessment) — it doubles as both the
+      // paragraph description and, capped short, the tag badges; there's no
+      // separate "tags" field to fabricate one for.
+      DB.riskCategories = (v.categories || []).map((c, i) => ({ id: 'rc' + i, name: c.name, score: c.score, level: c.level, desc: (c.findings || []).join(' '), tags: (c.findings || []).slice(0, 4) }));
       DB.riskRecommendations = v.recommendations || [];
       if (STATE.route === 'app' && ['dashboard','risk'].includes(STATE.appPage)) render();
     }, (err) => console.error('Risk assessment listener error:', err));
@@ -37874,7 +38474,7 @@ ${text.slice(0, 15000)}
       fb.orderBy('uploadedAt', 'desc')
     );
     unsubDocs = fb.onSnapshot(docsQuery, (snap) => {
-      const firstLoad = !STATE.docsReady; // the loading screen (see render()) is gated on this and needs to clear regardless of which page happens to be selected
+      const firstLoad = !STATE.docsReady; // the loading screen (see render()) is gated on docsReady AND issuesReady together and needs to clear regardless of which page happens to be selected or which of the two listeners resolves last
       DB.documents = snap.docs.map((d) => normalizeFirestoreDoc(d.id, d.data()));
       recomputeDerivedAnalytics();
       STATE.docsReady = true;
@@ -37935,6 +38535,7 @@ ${text.slice(0, 15000)}
           role: u.role || 'user', org: orgName, orgId: u.organizationId || null,
           avatarColor: DB.currentUser.avatarColor, initials: (u.displayName || user.email || '?').slice(0,2).toUpperCase(),
           photoURL: u.photoURL || null,
+          notificationPrefs: u.notificationPrefs || null,
         };
         STATE.needsOrg = !u.organizationId;
         STATE.appReady = true;
@@ -37945,12 +38546,14 @@ ${text.slice(0, 15000)}
           subscribeToOrgTeam(u.organizationId, u.role === 'admin');
           subscribeToOrgAuditLogs(u.organizationId, u.role === 'admin');
           subscribeToLatestRiskAssessment(u.organizationId);
+          subscribeToOrgDoc(u.organizationId);
         }
       }, (err) => console.error('User profile listener error:', err));
     } else {
       STATE.authed = false;
       STATE.appReady = false;
       STATE.docsReady = false;
+      STATE.issuesReady = false;
       STATE.isPlatformAdmin = null;
       DB.platformStats = null;
       DB.adminOrgs = [];
@@ -37961,6 +38564,7 @@ ${text.slice(0, 15000)}
       if (unsubInvites) { unsubInvites(); unsubInvites = null; }
       if (unsubAuditLogs) { unsubAuditLogs(); unsubAuditLogs = null; }
       if (unsubRisk) { unsubRisk(); unsubRisk = null; }
+      if (unsubOrgDoc) { unsubOrgDoc(); unsubOrgDoc = null; }
     }
   });
 
@@ -37972,6 +38576,8 @@ ${text.slice(0, 15000)}
       'auth/weak-password': 'Password should be at least 6 characters.',
       'auth/wrong-password': 'Incorrect password.',
       'auth/user-not-found': 'No account found with that email.',
+      'auth/invalid-credential': 'Incorrect email or password.',
+      'auth/too-many-requests': 'Too many attempts — please wait a moment and try again.',
       'auth/popup-closed-by-user': 'Google sign-in was closed before completing.',
       'auth/network-request-failed': 'Network error — check your connection and try again.',
     };
@@ -38019,9 +38625,15 @@ ${text.slice(0, 15000)}
     const passEl = document.getElementById('authPass');
     const email = emailEl ? emailEl.value.trim() : '';
     const password = passEl ? passEl.value : '';
-    const orgName = document.getElementById('authOrg')?.value;
+    // HTML's `required` attribute on #authOrg only rejects a truly empty
+    // value, not whitespace — without trimming here, a name of " " passed
+    // straight through to createOrganizationClient, which creates a real
+    // organization document with name: "".
+    const orgName = (document.getElementById('authOrg')?.value || '').trim();
     if (!email) { toast('Enter your email address.', 'warning'); return; }
+    if (!isPlausibleEmail(email)) { toast('Enter a valid email address.', 'warning'); return; }
     if (!password) { toast('Enter your password.', 'warning'); return; }
+    if (mode !== 'login' && !orgName) { toast('Enter an organization name.', 'warning'); return; }
     try {
       if (mode === 'login') {
         await fb.signInWithEmailAndPassword(fbAuth, email, password);
@@ -38029,9 +38641,8 @@ ${text.slice(0, 15000)}
       } else {
         const cred = await fb.createUserWithEmailAndPassword(fbAuth, email, password);
         await ensureUserProfile(cred.user);
-        if (orgName) {
-          await createOrganizationClient(orgName);
-        }
+        await createOrganizationClient(orgName);
+        sendVerificationEmail().catch((e) => console.error('Verification email failed to send:', e));
         toast('Your ORDINEX workspace is ready.', 'success', 'Account created');
       }
     } catch (e) {
@@ -38105,18 +38716,59 @@ ${text.slice(0, 15000)}
     }
   };
 
+  // ---- Email verification on signup: sendEmailVerification was never
+  // bundled into this file either (same reason as requestPasswordReset
+  // above), so this hits the same public Identity Toolkit REST endpoint
+  // directly, using the fresh idToken from the just-created account. ----
+  async function sendVerificationEmail() {
+    const idToken = await fbAuth.currentUser.getIdToken();
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${firebaseConfig.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestType: 'VERIFY_EMAIL', idToken }),
+    });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body?.error?.message || `Request failed (${res.status})`); }
+  }
+
   // ---- Documents: no Cloud Storage on the free plan (see SETUP.md), so
   // the file never leaves the browser as a binary — it's parsed client-side
   // (pdf.js / mammoth.js / Gemini vision OCR) and only the EXTRACTED TEXT
   // is stored, on the document's own Firestore doc. That's also what makes
   // "Revise Document" and bulk re-analysis work later without needing the
   // original file back. ----
+  // The upload dropzone's own copy promises "PDF, DOCX, TXT, CSV, and
+  // scanned images (JPG, PNG) — up to 25MB" — but nothing enforced that
+  // before this. Anything else (e.g. a renamed .exe, an .xlsx, a huge
+  // file) fell through extractTextFromFile's plain-text fallback, often
+  // producing binary garbage that still passed the 20-char emptiness
+  // check and got sent to Gemini as if it were a real document.
+  const ALLOWED_UPLOAD_EXTENSIONS = ['pdf', 'docx', 'txt', 'csv', 'jpg', 'jpeg', 'png'];
+  const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
   window.handleUpload = async function (files) {
     if (!files || files.length === 0) return;
     const country = document.getElementById('uploadCountry')?.value || '';
     const domain = document.getElementById('uploadDomain')?.value || '';
+    // The jurisdiction/domain selects used to silently default to whichever
+    // option was listed first (United States / Data Privacy) if left
+    // untouched — every upload where you forgot to pick one got tagged with
+    // that default with no indication it wasn't your choice. Both now start
+    // on an empty placeholder, so this can actually catch it.
+    if (!country || !domain) { toast('Select a jurisdiction and domain before uploading.', 'warning'); return; }
     closeModal();
+    const validFiles = [];
     for (const f of Array.from(files)) {
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext)) {
+        toast(`${f.name}: unsupported file type. Supports PDF, DOCX, TXT, CSV, JPG, PNG.`, 'warning');
+        continue;
+      }
+      if (f.size > MAX_UPLOAD_BYTES) {
+        toast(`${f.name}: file is over the 25MB limit.`, 'warning');
+        continue;
+      }
+      validFiles.push(f);
+    }
+    for (const f of validFiles) {
       const docId = 'doc_' + Date.now() + Math.random().toString(16).slice(2);
       const docRef = fb.doc(fbDb, 'documents', docId);
       try {
@@ -38210,7 +38862,7 @@ ${regContext || '(no regulations loaded yet)'}`;
 
   window.submitChat = async function () {
     const input = document.getElementById('chatInput');
-    const text = input.value.trim();
+    const text = input.value.trim().slice(0, 4000);
     if (!text || STATE.chatBusy) return;
     STATE.chatMessages.push({ role: 'user', text });
     STATE.chatBusy = true;
@@ -38443,15 +39095,39 @@ ${docData.extractedText.slice(0, 15000)}
     }
   };
 
+  // ---- Documents list: real delete — no UI ever offered this before.
+  // firestore.rules already restricts it to admin/compliance_officer. ----
+  window.deleteDocument = async function (id) {
+    try {
+      await fb.deleteDoc(fb.doc(fbDb, 'documents', id));
+      await writeAuditLog({ organizationId: DB.currentUser.orgId, actorUid: fbAuth.currentUser.uid, action: 'Document deleted', target: id });
+      closeModal();
+      toast('Document deleted.', 'info');
+      // subscribeToOrgDocuments' onSnapshot picks up the removal automatically.
+    } catch (e) {
+      toast('Could not delete: ' + e.message, 'danger', 'Error');
+    }
+  };
+
   // ---- Risk Assessment: real Gemini-generated assessment ----
   window.startNewRiskAssessment = async function () {
-    toast('Running AI risk assessment across your analyzed documents...', 'info');
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
-      await rateLimitCheck('assessRisk', { maxRequests: 10, windowMs: 60 * 60 * 1000 });
       const docsSnap = await fb.getDocs(fb.query(fb.collection(fbDb, 'documents'), fb.where('organizationId', '==', orgId), fb.where('status', '==', 'analyzed')));
-      const docsSummary = docsSnap.docs.map((d) => d.data()).map((v) => `- ${v.name} (domain: ${v.domain}, score: ${v.score}): ${(v.gaps || []).map((g) => `${g.severity}: ${g.title}`).join('; ')}`).join('\n') || '(no analyzed documents yet — general baseline assessment)';
+      if (docsSnap.empty) {
+        // Previously this fell through to Gemini anyway with a
+        // "(no analyzed documents yet — general baseline assessment)"
+        // placeholder in the prompt — Gemini would still return a
+        // plausible-looking score/gauge with nothing real behind it,
+        // and that fabricated number got saved and shown identically to
+        // a real, data-driven assessment. Refuse instead of fabricating.
+        toast('Upload and analyze at least one document before running a risk assessment.', 'warning');
+        return;
+      }
+      toast('Running AI risk assessment across your analyzed documents...', 'info');
+      await rateLimitCheck('assessRisk', { maxRequests: 10, windowMs: 60 * 60 * 1000 });
+      const docsSummary = docsSnap.docs.map((d) => d.data()).map((v) => `- ${v.name} (domain: ${v.domain}, score: ${v.score}): ${(v.gaps || []).map((g) => `${g.severity}: ${g.title}`).join('; ')}`).join('\n');
 
       const prompt = `Based on the following analyzed compliance documents for an organization, produce an overall risk assessment.
 Respond ONLY as JSON:
@@ -38558,6 +39234,35 @@ ${docsSummary}`;
       requirements: [
         { title: 'TRM Guideline 6.2', desc: 'Establish incident management and response processes.', status: 'partial' },
       ] },
+    { id: 'reg_pipeda', name: 'Personal Information Protection and Electronic Documents Act', short: 'PIPEDA', country: 'Canada', countryCode: 'CA', domain: 'Data Privacy', status: 'active',
+      description: 'Canadian federal law governing how private-sector organizations collect, use, and disclose personal information.',
+      tags: ['Privacy', 'Canada', 'Consent', 'Personal Information'],
+      requirements: [
+        { title: 'Principle 3 — Consent', desc: 'Knowledge and consent of the individual are required for the collection, use, or disclosure of personal information.', status: 'met' },
+        { title: 'Principle 7 — Safeguards', desc: 'Personal information shall be protected by security safeguards appropriate to the sensitivity of the information.', status: 'partial' },
+      ] },
+    { id: 'reg_privacyact_au', name: 'Privacy Act 1988', short: 'Privacy Act', country: 'Australia', countryCode: 'AU', domain: 'Data Privacy', status: 'active',
+      description: 'Australian federal law regulating the handling of personal information by government agencies and large businesses.',
+      tags: ['Privacy', 'Australia', 'APPs', 'Data Handling'],
+      requirements: [
+        { title: 'APP 1 — Open and transparent management', desc: 'Entities must manage personal information in an open and transparent way.', status: 'met' },
+        { title: 'APP 11 — Security of personal information', desc: 'Entities must take reasonable steps to protect personal information from misuse and loss.', status: 'gap' },
+      ] },
+    { id: 'reg_lil_fr', name: 'Loi Informatique et Libertés (French Data Protection Act)', short: 'LIL', country: 'France', countryCode: 'FR', domain: 'Data Privacy', status: 'active',
+      description: 'French national law implementing GDPR and governing data protection, enforced by the CNIL.',
+      tags: ['Privacy', 'France', 'CNIL', 'GDPR Implementation'],
+      requirements: [
+        { title: 'CNIL Registration', desc: 'Certain high-risk processing activities require prior consultation with the CNIL.', status: 'partial' },
+        { title: 'Data Subject Rights', desc: 'Individuals have rights of access, rectification, and erasure enforced by the CNIL.', status: 'met' },
+      ] },
+    { id: 'reg_dpdp_in', name: 'Digital Personal Data Protection Act', short: 'DPDP Act', country: 'India', countryCode: 'IN', domain: 'Data Privacy', status: 'active',
+      description: 'India\'s federal law governing the processing of digital personal data, requiring consent-based processing and data fiduciary obligations.',
+      tags: ['Privacy', 'India', 'Consent', 'Data Fiduciary'],
+      requirements: [
+        { title: 'Section 6 — Consent', desc: 'Personal data may only be processed on the basis of free, specific, informed and unambiguous consent.', status: 'gap' },
+        { title: 'Section 8 — Data Fiduciary Obligations', desc: 'Data fiduciaries must implement reasonable security safeguards to prevent personal data breaches.', status: 'partial' },
+        { title: 'Section 9 — Children\'s Data', desc: 'Processing of a child\'s personal data requires verifiable parental consent.', status: 'met' },
+      ] },
   ];
   window.syncRegulationDatabase = async function () {
     toast('Syncing regulation database...', 'info');
@@ -38651,13 +39356,87 @@ ${docsSummary}`;
       // 160px/quality 0.8 keeps this comfortably under Firestore's 1MB
       // per-document limit (usually a few KB) since it's stored inline.
       const dataUrl = await resizeImageToDataUrl(file, 160, 0.8);
-      await fb.updateProfile(fbAuth.currentUser, { photoURL: dataUrl });
+      // Firebase Auth's own photoURL field caps out at 2048 chars
+      // (auth/invalid-profile-attribute) — far too short for a data URI,
+      // so it's never set there. The Firestore users/{uid} doc has no such
+      // limit and is what every render path already reads from (see the
+      // onSnapshot listener that builds DB.currentUser).
       await fb.updateDoc(fb.doc(fbDb, 'users', fbAuth.currentUser.uid), { photoURL: dataUrl });
       toast('Profile photo updated.', 'success');
       // subscribeToOrgDocuments' sibling user-doc listener picks up
       // photoURL and re-renders automatically.
     } catch (e) {
       toast('Photo upload failed: ' + e.message, 'danger', 'Error');
+    }
+  };
+
+  // ---- Profile: real save. Name goes to both Firestore (what every
+  // render path reads) and Auth's own displayName (unlike photoURL, this
+  // has no problematic length limit). Organization renames the shared org
+  // doc — firestore.rules already restricts that update to admins, so a
+  // non-admin's write throws and is caught below rather than silently
+  // no-opping. ----
+  window.saveProfileChanges = async function () {
+    const name = document.getElementById('profileNameInput')?.value?.trim();
+    const orgInput = document.getElementById('profileOrgInput');
+    if (!name) { toast('Enter your name.', 'warning'); return; }
+    try {
+      const uid = fbAuth.currentUser.uid;
+      await fb.updateDoc(fb.doc(fbDb, 'users', uid), { displayName: name });
+      await fb.updateProfile(fbAuth.currentUser, { displayName: name });
+      if (orgInput && orgInput.value.trim() && DB.currentUser.orgId) {
+        await fb.updateDoc(fb.doc(fbDb, 'organizations', DB.currentUser.orgId), { name: orgInput.value.trim() });
+      }
+      toast('Profile updated.', 'success');
+      // subscribeToOrgDoc / the users/{uid} listener pick up the changes automatically.
+    } catch (e) {
+      toast('Could not save profile: ' + e.message, 'danger', 'Error');
+    }
+  };
+
+  // ---- Security: real password change. reauthenticateWithCredential /
+  // updatePassword were never bundled into this file (esbuild only
+  // includes what was originally imported, same reason requestPasswordReset
+  // below calls the REST API directly) — so this re-authenticates and
+  // updates the password via the same public Identity Toolkit REST API,
+  // using the apiKey already in firebaseConfig. ----
+  window.changePassword = async function () {
+    const currentPassword = document.getElementById('currentPasswordInput')?.value;
+    const newPassword = document.getElementById('newPasswordInput')?.value;
+    if (!currentPassword || !newPassword) { toast('Enter your current and new password.', 'warning'); return; }
+    if (newPassword.length < 6) { toast('New password should be at least 6 characters.', 'warning'); return; }
+    try {
+      const email = fbAuth.currentUser.email;
+      const signInRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: currentPassword, returnSecureToken: true }),
+      });
+      const signInBody = await signInRes.json();
+      if (!signInRes.ok) {
+        const code = signInBody?.error?.message || '';
+        throw new Error(code.startsWith('INVALID_LOGIN_CREDENTIALS') || code.startsWith('INVALID_PASSWORD') ? 'Current password is incorrect.' : (code || 'Could not verify current password.'));
+      }
+      const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${firebaseConfig.apiKey}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: signInBody.idToken, password: newPassword, returnSecureToken: false }),
+      });
+      if (!updateRes.ok) { const b = await updateRes.json().catch(() => ({})); throw new Error(b?.error?.message || 'Could not update password.'); }
+      document.getElementById('currentPasswordInput').value = '';
+      document.getElementById('newPasswordInput').value = '';
+      toast('Password updated.', 'success');
+    } catch (e) {
+      toast('Could not change password: ' + e.message, 'danger', 'Error');
+    }
+  };
+
+  // ---- Notification preferences: real save, one field per toggle so
+  // flipping one doesn't clobber concurrent edits to another. ----
+  window.toggleNotificationPref = async function (key, enabled) {
+    try {
+      await fb.updateDoc(fb.doc(fbDb, 'users', fbAuth.currentUser.uid), { [`notificationPrefs.${key}`]: enabled });
+      // subscribeToOrgDocuments' sibling user-doc listener picks this up automatically.
+    } catch (e) {
+      toast('Could not save preference: ' + e.message, 'danger', 'Error');
     }
   };
 
@@ -38681,14 +39460,51 @@ ${docsSummary}`;
   };
 
   // ---- Team: real invite, direct Firestore write to the org's invites
-  // subcollection. NOTE: as in the original Cloud Functions build, this
-  // creates the invite record but doesn't send an email — see SETUP.md
-  // §5 for wiring up an actual email provider. ----
+  // subcollection, plus a best-effort email via EmailJS (see emailjsConfig
+  // near the top of this file) — the invite is valid either way since
+  // Firestore is the source of truth; the email just tells the invitee. ----
+  async function sendInviteEmail({ email, role, orgName, inviterName }) {
+    if (!emailjsConfig.publicKey || emailjsConfig.publicKey === 'YOUR_EMAILJS_PUBLIC_KEY') {
+      console.log('EmailJS is not configured — invite record created but no email was sent. See emailjsConfig near the top of this file.');
+      return false;
+    }
+    try {
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: emailjsConfig.serviceId,
+          template_id: emailjsConfig.templateId,
+          user_id: emailjsConfig.publicKey,
+          template_params: {
+            to_email: email,
+            org_name: orgName || 'your organization',
+            role,
+            inviter_name: inviterName || 'A team admin',
+            app_url: window.location.origin + window.location.pathname,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return true;
+    } catch (e) {
+      console.error('Invite email failed to send (invite record was still created):', e);
+      return false;
+    }
+  }
   const ROLE_SLUGS = { 'Admin': 'admin', 'Compliance Officer': 'compliance_officer', 'Analyst': 'analyst', 'User': 'user' };
   window.sendInvite = async function () {
     const email = document.getElementById('inviteEmail').value;
-    const role = ROLE_SLUGS[document.getElementById('inviteRole').value] || 'user';
+    const roleLabel = document.getElementById('inviteRole').value;
+    const role = ROLE_SLUGS[roleLabel] || 'user';
     if (!isPlausibleEmail(email)) { toast('Enter a valid email address to invite.', 'warning'); return; }
+    // DB.team already includes pending invites (see subscribeToOrgTeam's
+    // pendingInvites merge, status:'Invited') via the live listener — no
+    // extra read needed to check for an existing one before creating another.
+    if (DB.team.some(t => t.status === 'Invited' && t.email.toLowerCase() === email.toLowerCase())) {
+      toast('An invite is already pending for ' + email + '.', 'warning');
+      return;
+    }
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
@@ -38697,11 +39513,42 @@ ${docsSummary}`;
       });
       await writeAuditLog({ organizationId: orgId, actorUid: uid, action: 'Team member invited', target: email });
       closeModal();
-      toast('Invitation created for ' + email + '.', 'success', 'Invite sent');
+      const emailed = await sendInviteEmail({ email, role: roleLabel, orgName: DB.currentUser.org, inviterName: DB.currentUser.name });
+      toast(emailed ? 'Invitation emailed to ' + email + '.' : 'Invitation created for ' + email + ' (no email sent — configure emailjsConfig to send one).', 'success', 'Invite sent');
       // subscribeToOrgTeam's onSnapshot on the invites subcollection picks
       // this up automatically.
     } catch (e) {
       toast('Invite failed: ' + e.message, 'danger', 'Error');
+    }
+  };
+  window.saveMemberRole = async function (id) {
+    const roleLabel = document.getElementById('editMemberRole').value;
+    const role = ROLE_SLUGS[roleLabel] || 'user';
+    try {
+      await fb.updateDoc(fb.doc(fbDb, 'users', id), { role });
+      await writeAuditLog({ organizationId: DB.currentUser.orgId, actorUid: fbAuth.currentUser.uid, action: 'Member role updated', target: `${id} -> ${roleLabel}` });
+      closeModal();
+      toast('Role updated.', 'success');
+      // subscribeToOrgTeam's onSnapshot picks up the change automatically.
+    } catch (e) {
+      toast('Could not update role: ' + e.message, 'danger', 'Error');
+    }
+  };
+
+  // ---- Billing: real plan change, direct Firestore write to the
+  // organization doc (admin-only per firestore.rules). No payment is
+  // collected — see the note above openUpgradePlanModal(). ----
+  window.changePlan = async function (planKey) {
+    const p = PLANS.find((x) => x.key === planKey);
+    if (!p) return;
+    try {
+      await fb.updateDoc(fb.doc(fbDb, 'organizations', DB.currentUser.orgId), { plan: planKey, seats: p.seats });
+      await writeAuditLog({ organizationId: DB.currentUser.orgId, actorUid: fbAuth.currentUser.uid, action: 'Plan changed', target: p.label });
+      closeModal();
+      toast('Switched to the ' + p.label + ' plan.', 'success');
+      // subscribeToOrgDoc's onSnapshot picks up the change automatically.
+    } catch (e) {
+      toast('Could not change plan: ' + e.message, 'danger', 'Error');
     }
   };
 

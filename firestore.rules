@@ -23,7 +23,13 @@ service cloud.firestore {
     }
 
     function isSameOrg(orgId) {
-      return isSignedIn() && orgIdOfCaller() == orgId;
+      // orgId != null matters here: without it, two users who've both
+      // signed up but haven't joined/created an org yet both have
+      // organizationId == null, and null == null was letting them read
+      // each other's full users/{uid} profile doc via the read rule below.
+      // Every other caller of isSameOrg() always passes a real org id, so
+      // this can't affect any of them.
+      return isSignedIn() && orgId != null && orgIdOfCaller() == orgId;
     }
 
     function hasRole(roles) {

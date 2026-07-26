@@ -179,10 +179,26 @@ which this build no longer uses.
 
 ## 8. Things you'll likely want to add next
 
-- **Actual invite emails.** `sendInvite` creates a Firestore invite record
-  but doesn't send email — same as the original build. A serverless email
-  provider (SendGrid, Postmark) would need its own backend, since there's
-  no Cloud Functions here to call it from.
+- **Turning on invite emails.** `sendInvite` always creates the Firestore
+  invite record (that's what actually grants access once the invitee
+  signs up) and separately, optionally, emails it via
+  [EmailJS](https://www.emailjs.com) — a service designed to be called
+  with a public, domain-restrictable key straight from the browser, no
+  backend required, same trade-off as the Gemini key already in this file.
+  Free tier: 200 emails/month. To turn it on:
+  1. Create a free EmailJS account and connect an email service (Gmail,
+     Outlook, or your own SMTP).
+  2. Create an email template with `{{to_email}}`, `{{org_name}}`,
+     `{{role}}`, `{{inviter_name}}`, and `{{app_url}}` variables.
+  3. Paste your Service ID, Template ID, and Public Key into
+     `emailjsConfig` near the top of `public/ordinex.html` (next to
+     `geminiConfig`).
+  4. In EmailJS's dashboard, restrict the public key to your domain, the
+     same way you'd restrict the Gemini key.
+
+  Until configured, invites still work (the Firestore record is created
+  and shows up as "Invited" in Team Management) — the invitee just isn't
+  emailed, and the console logs that EmailJS isn't configured.
 - **Real server-enforced rate limiting / abuse protection.** See trade-off
   #2 above — genuinely needs a server or Firebase App Check + Blaze.
 
