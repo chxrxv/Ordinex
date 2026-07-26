@@ -35183,6 +35183,11 @@ function go(appPage){ nav('app', appPage); }
 // Safe in both text-node and attribute-value contexts.
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function fmtDate(d){ const dt = new Date(d); return dt.toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}); }
+function fmtFileSize(bytes){
+  if(!(bytes > 0)) return null;
+  if(bytes < 1024*1024) return Math.max(1, Math.round(bytes/1024)) + ' KB';
+  return (bytes/1024/1024).toFixed(1) + ' MB';
+}
 function severityBadge(sev){
   const map = {High:'badge-danger', Medium:'badge-warning', Low:'badge-success', Critical:'badge-danger'};
   return `<span class="badge ${map[sev]||'badge-neutral'}">${sev}</span>`;
@@ -35209,10 +35214,16 @@ function render(){
   const active = document.activeElement;
   const focusInfo = (active && active.id && (active.tagName==='INPUT'||active.tagName==='TEXTAREA'))
     ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
+  // Same problem as focus above, for the sidebar's own scroll position:
+  // the full innerHTML rebuild recreates .sb-nav already scrolled to 0,
+  // so clicking a nav item near the bottom (with the sidebar scrolled
+  // down to reach it) jumped back to the top on every navigation.
+  const oldSidebarNav = document.querySelector('.sb-nav');
+  const sidebarScroll = oldSidebarNav ? oldSidebarNav.scrollTop : 0;
 
-  if(STATE.route==='landing'){ root.innerHTML = renderLanding(); afterRender(focusInfo); return; }
-  if(STATE.route==='login'){ root.innerHTML = renderAuth('login'); afterRender(focusInfo); return; }
-  if(STATE.route==='register'){ root.innerHTML = renderAuth('register'); afterRender(focusInfo); return; }
+  if(STATE.route==='landing'){ root.innerHTML = renderLanding(); afterRender(focusInfo, sidebarScroll); return; }
+  if(STATE.route==='login'){ root.innerHTML = renderAuth('login'); afterRender(focusInfo, sidebarScroll); return; }
+  if(STATE.route==='register'){ root.innerHTML = renderAuth('register'); afterRender(focusInfo, sidebarScroll); return; }
   // In LIVE_MODE, the dashboard's numbers come from Firestore listeners that
   // haven't delivered anything yet at the instant sign-in completes — without
   // this gate, the very first paint after every login/reload briefly shows
@@ -35220,8 +35231,8 @@ function render(){
   // (often very different, e.g. 0) values arrive a few hundred ms later.
   // Demo mode (LIVE_MODE off) has no such gap — STATE.appReady is never set
   // there, so it's excluded from this check entirely.
-  if(STATE.route==='app' && LIVE_MODE && (!STATE.appReady || (DB.currentUser.orgId && !(STATE.docsReady && STATE.issuesReady)))){ root.innerHTML = renderAppLoading(); afterRender(focusInfo); return; }
-  if(STATE.route==='app' && STATE.needsOrg){ root.innerHTML = renderOrgOnboarding(); afterRender(focusInfo); return; }
+  if(STATE.route==='app' && LIVE_MODE && (!STATE.appReady || (DB.currentUser.orgId && !(STATE.docsReady && STATE.issuesReady)))){ root.innerHTML = renderAppLoading(); afterRender(focusInfo, sidebarScroll); return; }
+  if(STATE.route==='app' && STATE.needsOrg){ root.innerHTML = renderOrgOnboarding(); afterRender(focusInfo, sidebarScroll); return; }
 
   // app shell
   root.innerHTML = `
@@ -35234,10 +35245,10 @@ function render(){
       </div>
     </div>
   `;
-  afterRender(focusInfo);
+  afterRender(focusInfo, sidebarScroll);
 }
 
-function afterRender(focusInfo){
+function afterRender(focusInfo, sidebarScroll){
   refreshIcons();
   renderAllCharts();
   if(focusInfo){
@@ -35248,6 +35259,10 @@ function afterRender(focusInfo){
         try{ el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(e){}
       }
     }
+  }
+  if(sidebarScroll){
+    const sidebarNav = document.querySelector('.sb-nav');
+    if(sidebarNav) sidebarNav.scrollTop = sidebarScroll;
   }
 }
 
@@ -36329,7 +36344,7 @@ function handleUpload(files){
   Array.from(files).forEach(f=>{
     const ext = (f.name.split('.').pop()||'txt').toUpperCase();
     DB.documents.unshift({ id:'doc_'+Date.now()+Math.random().toString(16).slice(2), name:f.name, type:FILE_ICON[ext]?ext:'TXT',
-      size:(f.size/1024/1024).toFixed(1)+' MB', country, domain, status:'processing', score:null, uploaded:new Date().toISOString().slice(0,10) });
+      size:fmtFileSize(f.size), country, domain, status:'processing', score:null, uploaded:new Date().toISOString().slice(0,10) });
   });
   closeModal();
   toast(files.length+' file(s) uploaded. AI analysis has started.', 'success', 'Upload complete');
@@ -37722,7 +37737,7 @@ function renderSettings(){
           ${icon(t.icon,16)}<span style="flex:1;">${t.label}</span>${icon('chevron-right',14)}
         </a>`).join('')}
     </div>
-    <div class="glass" style="padding:26px;">
+    <div class="glass" style="padding:26px; min-width:0;">
       ${renderSettingsPanel()}
     </div>
   </div>
@@ -38410,7 +38425,10 @@ ${text.slice(0, 15000)}
   function normalizeFirestoreAuditLog(id, v) {
     let time = '—';
     if (v.timestamp && typeof v.timestamp.toDate === 'function') time = v.timestamp.toDate().toISOString().replace('T', ' ').slice(0, 16);
-    return { id, action: v.action || 'Action', actor: v.actorUid === 'system' ? 'System (AI Service)' : (v.actorUid || 'Unknown'), target: v.target || '—', time, status: v.status || 'success' };
+    let actor = 'Unknown';
+    if (v.actorUid === 'system') actor = 'System (AI Service)';
+    else if (v.actorUid) { const member = DB.team.find(t => t.id === v.actorUid); actor = member ? (member.name || member.email || v.actorUid) : v.actorUid; }
+    return { id, action: v.action || 'Action', actor, target: v.target || '—', time, status: v.status || 'success' };
   }
   function subscribeToOrgAuditLogs(orgId, isAdmin) {
     if (unsubAuditLogs) { unsubAuditLogs(); unsubAuditLogs = null; }
@@ -38798,7 +38816,7 @@ ${text.slice(0, 15000)}
           uploadedBy: fbAuth.currentUser.uid,
           name: f.name,
           contentType: f.type || '',
-          size: f.size > 0 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : null,
+          size: fmtFileSize(f.size),
           country: country || null,
           domain: domain || null,
           uploadedAt: fb.serverTimestamp(),
