@@ -38081,7 +38081,7 @@ function renderSettingsPanel(){
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">API Keys</div>
     <div style="font-size:13px; color:var(--text-2); margin-bottom:22px;">Manage programmatic access to the ORDINEX API</div>
     ${emptyState('key','No API available', LIVE_MODE
-      ? "This build has no server of its own to authenticate a key against — it talks to Firestore directly from the browser under firestore.rules, and to Gemini with its own domain-restricted key (see SETUP.md). There's nothing here for a generated key to actually gate."
+      ? "This build has no server of its own to authenticate a key against — it talks to Firestore directly from the browser under firestore.rules, and AI requests go to the local AI backend running on your own computer (no cloud AI key is used). There's nothing here for a generated key to actually gate."
       : 'Demo mode — this tab has no backing API in this build.')}`;
   if(STATE.settingsTab==='audit') return `
     <div style="font-weight:700; font-size:17px; margin-bottom:4px;">Audit Logs</div>
@@ -39318,7 +39318,7 @@ ${regContext || '(no regulations loaded yet)'}`;
     const title = document.getElementById('genReportTitle').value || 'Untitled Report';
     const type = document.getElementById('genReportType').value;
     closeModal();
-    toast('Generating your report with Gemini — this usually takes under a minute.', 'info', 'Generating report');
+    toast('Generating your report with the local AI model — this can take a minute or two.', 'info', 'Generating report');
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
@@ -39359,7 +39359,7 @@ Write in a professional, board-ready tone. Do not use markdown headers.`;
     }
   };
   window.regenerateReportSection = async function (id) {
-    toast('Asking Gemini to regenerate this section with your latest data...', 'info');
+    toast('Asking the local AI model to regenerate this section with your latest data...', 'info');
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
@@ -39444,7 +39444,7 @@ Write in a professional, board-ready tone. Do not use markdown headers.`;
   // time; see handleUpload.) ----
   window.reviseAndDownloadDocument = async function (documentId) {
     closeModal();
-    toast('Asking Gemini to revise the document — this can take a bit for longer documents...', 'info', 'Revising document');
+    toast('Asking the local AI model to revise the document — this can take a bit for longer documents...', 'info', 'Revising document');
     try {
       const uid = fbAuth.currentUser.uid;
       await rateLimitCheck('reviseDocument', { maxRequests: 10, windowMs: 60 * 60 * 1000 });
