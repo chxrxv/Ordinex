@@ -38958,21 +38958,31 @@ ${text.slice(0, 15000)}
    * — the client-side replacement for the old onUserCreate Auth trigger
    * (there's no Cloud Functions in this build to run it server-side).
    * No-ops if the profile already exists. */
-  async function ensureUserProfile(user) {
-    const ref = fb.doc(fbDb, 'users', user.uid);
-    const snap = await fb.getDoc(ref).catch(() => null);
-    if (snap && snap.exists()) return;
-    try {
-      await fb.setDoc(ref, {
-        uid: user.uid,
-        email: user.email || null,
-        displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
-        photoURL: user.photoURL || null,
-        role: null, // assigned once they create/join an organization
-        organizationId: null,
-        createdAt: fb.serverTimestamp(),
-      });
-    } catch (e) { console.error('Could not create user profile:', e); }
+  // ensureUserProfile() is invoked from doAuth/doGoogleAuth AND from the onAuthStateChanged safety net, and on sign-up
+  // those fire together. Unguarded, both saw "no profile yet" and both wrote; the second write is an UPDATE that rewrites
+  // createdAt, which firestore.rules (profile allow-list) correctly refuses. So concurrent calls for the same uid share
+  // ONE in-flight creation. (The in-flight map hangs off the function itself to avoid a temporal-dead-zone on first use.)
+  function ensureUserProfile(user) {
+    const inflight = ensureUserProfile._inflight || (ensureUserProfile._inflight = new Map());
+    if (inflight.has(user.uid)) return inflight.get(user.uid);
+    const run = (async () => {
+      const ref = fb.doc(fbDb, 'users', user.uid);
+      const snap = await fb.getDoc(ref).catch(() => null);
+      if (snap && snap.exists()) return;
+      try {
+        await fb.setDoc(ref, {
+          uid: user.uid,
+          email: user.email || null,
+          displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
+          photoURL: user.photoURL || null,
+          role: null, // assigned once they create/join an organization
+          organizationId: null,
+          createdAt: fb.serverTimestamp(),
+        });
+      } catch (e) { console.error('Could not create user profile:', e); }
+    })().finally(() => inflight.delete(user.uid));
+    inflight.set(user.uid, run);
+    return run;
   }
 
   /** Client-side replacement for the old createOrganization Cloud

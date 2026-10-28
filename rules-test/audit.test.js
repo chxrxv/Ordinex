@@ -149,3 +149,12 @@ test('INFO: unverified-email holder can read an invitation addressed to their ad
   b.update(doc(unv, 'users', 'erin'), { organizationId: 'orgA', role: 'admin' });
   await assertFails(b.commit());
 });
+
+test('F9: the profile allow-list stays STRICT - re-writing a whole existing profile (what a duplicate sign-up write does) is refused, first-time creation still works', async () => {
+  const db = as('dupuser');
+  const full = () => ({ uid: 'dupuser', email: 'dup@x.io', displayName: 'dup', photoURL: null, role: null, organizationId: null, createdAt: serverTimestamp() });
+  await assertSucceeds(setDoc(doc(db, 'users', 'dupuser'), full()));         // the single intended creation
+  await assertFails(setDoc(doc(db, 'users', 'dupuser'), full()));            // a second full write = update that rewrites createdAt/uid/email
+  await assertFails(updateDoc(doc(db, 'users', 'dupuser'), { createdAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db, 'users', 'dupuser'), { displayName: 'renamed' }));   // legitimate profile edit unaffected
+});
