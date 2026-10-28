@@ -14,7 +14,7 @@
     "ai:ui:test:headed": "node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=fast --headed",
     "ai:ui:test:e2e": "node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=e2e",
     "ai:dataset": "node local-ai/src/validate-dataset.js",
-    "rules:test": "firebase emulators:exec --only firestore --project demo-ordinex \"node --test rules-test/rules.test.js rules-test/access.test.js\"",
+    "rules:test": "firebase emulators:exec --only firestore --project demo-ordinex \"node --test rules-test/rules.test.js rules-test/access.test.js rules-test/audit.test.js\"",
     "ai:ui:test:emulator": "firebase emulators:exec --only auth,firestore --project demo-ordinex \"node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=emu\""
   }
 }

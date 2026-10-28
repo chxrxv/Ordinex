@@ -23,6 +23,7 @@ Verify the list yourself before deploying: `Get-ChildItem public -Recurse -File 
 - Invitations are now org-scoped documents (`invitations/{orgId}_{email}`). **Pending invitations created by the old version live in `organizations/*/invites` and will no longer appear in the Team list — re-send them.** (Rules keep read/delete on that legacy location so admins can clean up.)
 - Organisation admins can rename their organisation but can no longer change plan/seats; only platform admins can (Admin Console).
 - Shared regulations can only be updated by platform admins (see `docs/PLATFORM_ADMIN.md`).
+- Security audit fixes included: a removed founder can no longer re-promote themselves (bootstrap works only within 10 minutes of creating the organisation); organisation ids and the ids of documents, reports, risk records, issues and notifications are format-restricted (stored-XSS and invitation-id collision fixes); users with no organisation can no longer create organisation data or notify each other; the sidebar and Knowledge Base now carry accurate wording (no false "Gemini analysed" claim; sample regulations are labelled as unverified summaries).
 - Bug fixed along the way: the **Admin Console** menu item was added once at page load, before platform-admin status was known, so platform admins never saw it in live mode. It is now evaluated on every render.
 - No existing user, organisation, document, report or notification is modified. Existing organisations keep their current `plan`/`seats`.
 
@@ -47,6 +48,7 @@ The Firebase web `apiKey` is a public client identifier by design; it is not a s
 - [ ] Platform admin ready: `platformAdmins/{your UID}` created in the console (`docs/PLATFORM_ADMIN.md` §1). Safe to do before deploying.
 - [ ] Decide regulation seeding order (`docs/PLATFORM_ADMIN.md` §2, Option A or B).
 - [ ] Tell your users that pending invitations must be re-sent.
+- [ ] **Read-only data check (new ID rules apply to new writes only):** in the Firebase console, open `documents`, `complianceReports`, `riskAssessments`, `complianceIssues`, `notifications` and `organizations` and confirm existing ids look app-generated (letters, digits, `_`, `-`; organisation ids letters/digits only). A document whose id contains quotes or brackets would be pre-existing hostile data: the updated UI neutralises it (`jsq()`), but investigate and delete it. This check was not performed — it needs console access to production.
 - [ ] The old Gemini key is revoked in Google AI Studio (removing it from the page does not invalidate it).
 - [ ] `firebase use` shows `ordinex-862ba` (your account also has `ordinex-50b01`; the command above names the project explicitly).
 - [ ] Working tree contains nothing you do not want published (`git status`, and the public file list above).

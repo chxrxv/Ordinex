@@ -32,6 +32,12 @@ service cloud.firestore {
       return isSignedIn() && orgId != null && orgIdOfCaller() == orgId;
     }
 
+    // The caller must belong to an organisation. Without this, org-less users (organizationId == null) match each
+    // other on `null == null` in create rules and could write org-less data or message other org-less users.
+    function callerHasOrg() {
+      return isSignedIn() && orgIdOfCaller() != null;
+    }
+
     function hasRole(roles) {
       return isSignedIn() && roleOfCaller() in roles;
     }
@@ -87,9 +93,9 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /users/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isSameOrg(resource.data.organizationId) || isPlatformAdmin());
+      // Self-service profile edits only: display name, photo, notification preferences (never role, org, email, uid...).
       allow update: if isSignedIn() && request.auth.uid == uid
-                    && request.resource.data.role == resource.data.role // users cannot self-promote
-                    && request.resource.data.organizationId == resource.data.organizationId;
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'notificationPrefs']);
       // One-time self-serve bootstrap: a user with no org yet may promote
       // themselves to 'admin' of an org, but only one they just created
       // (createdBy == themselves) — this replaces what the createOrganization
@@ -98,7 +104,11 @@ service cloud.firestore {
                     && resource.data.organizationId == null
                     && request.resource.data.role == 'admin'
                     && request.resource.data.organizationId is string
-                    && get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.createdBy == request.auth.uid;
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'organizationId'])
+                    && get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.createdBy == request.auth.uid
+                    // ...and only within minutes of creating it. Otherwise a founder who was later removed by another
+                    // admin could re-promote themselves to admin of that org forever (createdBy never changes).
+                    && get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.createdAt > request.time - duration.value(10, 'm');
       // Admins manage roles of members of THEIR org, and may remove a member (org+role -> null). They may NOT
       // change organizationId to anything else: that would let an admin of org A plant a colluding account as
       // admin of any org B. Only role/organizationId may change.
@@ -149,8 +159,14 @@ service cloud.firestore {
                     && request.resource.data.plan in ['starter', 'professional', 'enterprise']
                     && request.resource.data.seats is int && request.resource.data.seats > 0 && request.resource.data.seats <= 1000;
       // New organisations always start on the free tier; nobody can create one with a paid plan or extra seats.
-      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid
-                    && request.resource.data.plan == 'starter' && request.resource.data.seats == 5;
+      // The id must be plain alphanumerics (Firestore auto-ids are): invitation ids are `{orgId}_{email}`, so an org id
+      // containing '_' could collide with another org's invitation ids.
+      allow create: if isSignedIn() && orgId.matches('[A-Za-z0-9]{1,64}')
+                    && request.resource.data.keys().hasOnly(['name', 'plan', 'seats', 'createdBy', 'createdAt'])
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120
+                    && request.resource.data.plan == 'starter' && request.resource.data.seats == 5
+                    && request.resource.data.createdAt == request.time;
       allow delete: if false; // never allow client-side org deletion
     }
 
@@ -159,7 +175,8 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /documents/{docId} {
       allow read: if isSameOrg(resource.data.organizationId);
-      allow create: if isSignedIn()
+      // ids must be plain [A-Za-z0-9_-]: the app embeds them in inline JS handlers, so a quote/paren in an id would be stored XSS
+      allow create: if callerHasOrg() && docId.matches('[A-Za-z0-9_-]{1,64}')
                     && request.resource.data.organizationId == orgIdOfCaller()
                     && request.resource.data.uploadedBy == request.auth.uid;
       // Any signed-in org member: "New Analysis" (bulk re-analysis) is
@@ -185,7 +202,7 @@ service cloud.firestore {
       // that real behavior since there's no privileged backend left.
       // create and update are separate: the old combined rule let anyone overwrite another org's
       // report by writing their own organizationId into it.
-      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
+      allow create: if callerHasOrg() && reportId.matches('[A-Za-z0-9_-]{1,64}') && request.resource.data.organizationId == orgIdOfCaller();
       allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
                     && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
@@ -199,7 +216,7 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /complianceIssues/{issueId} {
       allow read: if isSameOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
+      allow create: if callerHasOrg() && issueId.matches('[A-Za-z0-9_-]{1,64}') && request.resource.data.organizationId == orgIdOfCaller();
       // Any signed-in org member: the automatic "resolve stale issues on
       // re-analysis" step in applyAnalysisResult() runs as whichever member
       // triggered the upload/re-analysis, not just elevated roles — same
@@ -219,7 +236,7 @@ service cloud.firestore {
       allow read: if isSameOrg(resource.data.organizationId);
       // Same reasoning as complianceReports: "New Assessment" is shown to
       // every org member in the UI and used to run via Admin-SDK bypass.
-      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
+      allow create: if callerHasOrg() && riskId.matches('[A-Za-z0-9_-]{1,64}') && request.resource.data.organizationId == orgIdOfCaller();
       allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
                     && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
@@ -247,7 +264,7 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       // Members fan notifications out to their org colleagues (client-side, no backend). The RECIPIENT must be a
       // current member of the caller's own org, so nothing can be sent into another tenant.
-      allow create: if isSignedIn()
+      allow create: if callerHasOrg() && notifId.matches('[A-Za-z0-9_-]{1,64}')
                     && request.resource.data.organizationId == orgIdOfCaller()
                     && request.resource.data.userId is string
                     && exists(/databases/$(database)/documents/users/$(request.resource.data.userId))
@@ -264,7 +281,10 @@ service cloud.firestore {
       let d = request.resource.data;
       return isAdmin() && isSameOrg(d.organizationId)
           && d.keys().hasOnly(['email', 'organizationId', 'organizationName', 'role', 'invitedBy', 'status', 'createdAt', 'expiresAt'])
-          && d.email is string && d.email == d.email.lower()
+          && d.organizationId is string && d.organizationId.matches('[A-Za-z0-9]{1,64}')
+          && d.organizationName is string && d.organizationName.size() <= 200
+          && d.email is string && d.email.size() <= 254 && d.email == d.email.lower()
+          && d.email.matches('[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}')
           && inviteId == d.organizationId + '_' + d.email
           && validRole(d.role) && d.status == 'pending' && d.invitedBy == request.auth.uid
           && d.createdAt == request.time
@@ -314,7 +334,7 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /auditLogs/{logId} {
       allow read: if isAdmin() && isSameOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller() && request.resource.data.actorUid == request.auth.uid;
+      allow create: if callerHasOrg() && request.resource.data.organizationId == orgIdOfCaller() && request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false; // immutable once written, even from the client
     }
 

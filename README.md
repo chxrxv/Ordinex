@@ -71,8 +71,8 @@ The committed `public/ordinex.html` contains **placeholders** for the Firebase w
 ```powershell
 npm run ai:test            # backend unit tests
 npm run ai:dataset         # regulatory dataset validator
-npm run rules:test         # Firestore rules (31 tests), against the Firebase emulator (needs Java; cd rules-test ; npm install)
-npm run ai:ui:test:emulator # the REAL signed-in app (sign-up, org, invitations, billing, regulations) against the Auth + Firestore emulators
+npm run rules:test         # Firestore rules (43 tests incl. security-audit probes), against the Firebase emulator (needs Java; cd rules-test ; npm install)
+npm run ai:ui:test:emulator # the REAL signed-in app (sign-up, org, invitations, billing, regulations, an XSS regression) + REST-helper hardening tests, against the Auth + Firestore emulators
 npm run ai:ui:test         # browser + API tests: real Chromium, real backend, MOCK Ollama
 npm run ai:ui:test:e2e     # real browser -> backend -> real Ollama qwen3:4b (needs the model installed)
 npm run ai:eval            # real-model evaluation on 10 synthetic cases
@@ -87,6 +87,9 @@ One-time: `cd local-ai ; npx playwright install chromium`. Mock-model tests exer
 - Invitations: `invitations/{organizationId}_{lowercased email}` (the id embeds the org, so one org can never touch another's invitations). Created by an org admin (≤ 15-day expiry). Accepting and joining happen in **one atomic Firestore commit** (REST `documents:commit` via `public/firestore-rest.js`, because the bundled SDK has no batch API) and the rules require both writes together, so an invitation is single-use, cannot be half-applied, and cannot be replayed by a removed member. The invitee's email must be verified.
 - The local backend binds to loopback, checks the `Host` header, refuses non-loopback or non-allow-listed `Origin`s on `/api`, caps upload size, and never serves files outside `public/`.
 - No AI key is embedded in the frontend. If a Gemini key was ever deployed, revoke it in Google AI Studio — removing it from code does not invalidate it.
+- Identifiers: document/report/risk/issue/notification ids must match `[A-Za-z0-9_-]{1,64}`, organisation ids `[A-Za-z0-9]{1,64}`, and invitation emails a conservative character set (enforced by the rules). The UI additionally renders ids into inline handlers only through `jsq()`, because HTML-escaping is not sufficient inside `onclick` attributes. A previous audit demonstrated stored XSS from a member to an admin via a crafted document id; both layers close it.
+- Organisation bootstrap: a user may promote themselves to admin of an organisation they created only within 10 minutes of creating it, so a founder who is later removed cannot walk back in.
+- Users with no organisation cannot create organisation data or send notifications.
 - Billing fields: organisation admins may only rename their organisation; `plan`/`seats` can be changed only by a platform admin (Admin Console → Set plan). New organisations always start as `starter`/5 seats. There is no payment provider.
 - Platform admin bootstrap and regulation seeding: see [`docs/PLATFORM_ADMIN.md`](./docs/PLATFORM_ADMIN.md). Deployment plan, backup and rollback: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 - Known trade-offs: any organisation member can resolve issues and create reports (documented product behaviour); members of an organisation can send each other notifications.

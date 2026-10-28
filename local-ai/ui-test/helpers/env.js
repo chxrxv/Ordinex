@@ -88,7 +88,7 @@ function startHostedStub(port) {
 
 /** Serves ord/public for the EMULATOR suite with a FAKE Firebase config (project demo-ordinex), so the real project is never addressed. */
 function startConfiguredApp(port) {
-  const pub = path.join(__dirname, '..', '..', '..', 'public');
+  const pub = process.env.ORDINEX_PUBLIC_DIR || path.join(__dirname, '..', '..', '..', 'public');   // override only for negative-control runs
   const FAKE = ['const firebaseConfig = {', '  apiKey: "fake-api-key",', '  authDomain: "demo-ordinex.firebaseapp.com",', '  projectId: "demo-ordinex",', '  storageBucket: "",', '  messagingSenderId: "0",', '  appId: "1:0:web:0",', '};'].join(String.fromCharCode(10));
   const srv = http.createServer((req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);

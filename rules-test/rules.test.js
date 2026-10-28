@@ -61,7 +61,7 @@ test('users cannot self-promote or switch org; bootstrap works only for an org t
   await assertFails(updateDoc(doc(as('bob'), 'users', 'bob'), { organizationId: 'orgB' }));
   await assertSucceeds(updateDoc(doc(as('bob'), 'users', 'bob'), { displayName: 'Bobby' }));
   await assertFails(updateDoc(doc(as('dave'), 'users', 'dave'), { role: 'admin', organizationId: 'orgA' }));   // not created by dave
-  await assertSucceeds(setDoc(doc(as('dave'), 'organizations', 'orgD'), { name: 'D', createdBy: 'dave', plan: 'starter', seats: 5 }));
+  await assertSucceeds(setDoc(doc(as('dave'), 'organizations', 'orgD'), { name: 'D', createdBy: 'dave', plan: 'starter', seats: 5, createdAt: serverTimestamp() }));
   await assertSucceeds(updateDoc(doc(as('dave'), 'users', 'dave'), { role: 'admin', organizationId: 'orgD' }));
 });
 test('documents: create only into own org as self; no cross-org move or overwrite', async () => {

@@ -71,7 +71,7 @@ test('REGRESSION sign-up -> create organization -> become admin -> use the works
 test('a signed-up user cannot adopt an org they did not create (bootstrap abuse) or set createdBy later', async () => {
   const db = as('dave');
   await assertFails(updateDoc(doc(db, 'users', 'dave'), { organizationId: 'orgB', role: 'admin' }));
-  await assertSucceeds(setDoc(doc(db, 'organizations', 'orgD'), { name: 'D', createdBy: 'dave', plan: 'starter', seats: 5 }));
+  await assertSucceeds(setDoc(doc(db, 'organizations', 'orgD'), { name: 'D', createdBy: 'dave', plan: 'starter', seats: 5, createdAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(as('alice'), 'organizations', 'orgA'), { createdBy: 'dave' }));
 });
 

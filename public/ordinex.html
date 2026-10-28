@@ -35207,6 +35207,10 @@ function go(appPage){ nav('app', appPage); }
 // or it's stored/reflected XSS the moment another org member views it.
 // Safe in both text-node and attribute-value contexts.
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+/* Safe JS string literal for use INSIDE an inline event-handler attribute (onclick="f(${jsq(id)})").
+   esc() is NOT enough there: the HTML parser decodes &#39; back to ' before the JS runs. This emits only [A-Za-z0-9_-]
+   and \uXXXX escapes, so no value (e.g. an attacker-chosen Firestore document id) can break out of the string. */
+function jsq(s){ return "'" + String(s==null?'':s).replace(/[^A-Za-z0-9_-]/g, function(c){ return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); }) + "'"; }
 function fmtDate(d){ const dt = new Date(d); return dt.toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}); }
 function fmtFileSize(bytes){
   if(!(bytes > 0)) return null;
@@ -35386,8 +35390,8 @@ function renderTopbar(){
         <div style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:6px 10px 6px 6px; border-radius:12px;" onclick="event.stopPropagation(); STATE.userMenuOpen=!STATE.userMenuOpen; STATE.notifOpen=false; render();">
           <div style="width:34px; height:34px; border-radius:10px; background:${u.avatarColor}; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:#fff; overflow:hidden;">${u.photoURL?`<img src="${u.photoURL}" style="width:100%;height:100%;object-fit:cover;" />`:u.initials}</div>
           <div style="line-height:1.2; max-width:140px; overflow:hidden;" class="topbar-user-text">
-            <div style="font-size:13.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${u.name}</div>
-            <div style="font-size:11.5px; color:var(--text-2); text-transform:capitalize; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${u.role}</div>
+            <div style="font-size:13.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(u.name)}</div>
+            <div style="font-size:11.5px; color:var(--text-2); text-transform:capitalize; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(u.role)}</div>
           </div>
           ${icon('chevron-down',15)}
         </div>
@@ -36250,9 +36254,9 @@ function renderDocTable(docs){
         <td>${statusBadge(d.status)}</td>
         <td>${d.score!=null?`<div style="display:flex; align-items:center; gap:8px;"><div class="progress-track" style="width:60px;"><div class="progress-fill" style="width:${d.score}%; background:${d.score>=75?'var(--success)':d.score>=50?'var(--warning)':'var(--danger)'};"></div></div><span style="font-size:12.5px; font-weight:700;">${d.score}%</span></div>`:'<span style="color:var(--text-3);">—</span>'}</td>
         <td>${fmtDate(d.uploaded)}</td>
-        <td class="sticky-col"><div style="display:flex; gap:6px;"><button class="icon-btn" style="width:32px;height:32px;" onclick="viewDocument('${d.id}')">${icon('eye',14)}</button>
-          <button class="icon-btn" style="width:32px;height:32px;" onclick="downloadDocumentPdf('${d.id}')">${icon('download',14)}</button>
-          ${canDeleteDocuments()?`<button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="confirmDeleteDocument('${d.id}')">${icon('trash-2',14)}</button>`:''}</div></td>
+        <td class="sticky-col"><div style="display:flex; gap:6px;"><button class="icon-btn" style="width:32px;height:32px;" onclick="viewDocument(${jsq(d.id)})">${icon('eye',14)}</button>
+          <button class="icon-btn" style="width:32px;height:32px;" onclick="downloadDocumentPdf(${jsq(d.id)})">${icon('download',14)}</button>
+          ${canDeleteDocuments()?`<button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="confirmDeleteDocument(${jsq(d.id)})">${icon('trash-2',14)}</button>`:''}</div></td>
       </tr>`; }).join('')}
     </tbody>
   </table>
@@ -36262,10 +36266,10 @@ function renderDocGrid(docs){
   if(docs.length===0) return emptyState('file-x','No documents found','Try adjusting your search or filters, or upload a new document.');
   return `<div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); padding:20px;">
     ${docs.map(d=>{ const [ic,color] = FILE_ICON[d.type]||FILE_ICON.TXT;
-      return `<div class="glass card-hover" style="padding:18px; background:var(--bg-1);" onclick="viewDocument('${d.id}')">
+      return `<div class="glass card-hover" style="padding:18px; background:var(--bg-1);" onclick="viewDocument(${jsq(d.id)})">
       <div style="display:flex; justify-content:space-between; margin-bottom:14px;">
         <div class="icon-box" style="background:${color}1f; color:${color};">${icon(ic,18)}</div>
-        <div style="display:flex; align-items:center; gap:8px;">${statusBadge(d.status)}${canDeleteDocuments()?`<button class="icon-btn" style="width:28px;height:28px; color:var(--danger);" onclick="event.stopPropagation(); confirmDeleteDocument('${d.id}')">${icon('trash-2',13)}</button>`:''}</div>
+        <div style="display:flex; align-items:center; gap:8px;">${statusBadge(d.status)}${canDeleteDocuments()?`<button class="icon-btn" style="width:28px;height:28px; color:var(--danger);" onclick="event.stopPropagation(); confirmDeleteDocument(${jsq(d.id)})">${icon('trash-2',13)}</button>`:''}</div>
       </div>
       <div style="font-weight:700; font-size:14px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(d.name)}</div>
       <div style="font-size:12px; color:var(--text-2); margin-bottom:14px;">${d.country} • ${d.size}</div>
@@ -36330,7 +36334,7 @@ function viewDocument(id){
     <div class="glass" style="padding:18px; margin-bottom:18px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span style="font-weight:700;">AI Compliance Score</span><span style="font-weight:800; font-size:18px; color:${d.score>=75?'var(--success)':d.score>=50?'var(--warning)':'var(--danger)'};">${d.score}%</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${d.score}%;"></div></div>
-      <p style="font-size:13px; color:var(--text-2); margin-top:12px; line-height:1.6;">Gemini 2.5 Pro analyzed this document against applicable ${d.country} regulations. ${d.score>=75?'No critical gaps were found; minor recommendations are listed below.':'Several compliance gaps require remediation — see Compliance Analysis for details.'}</p>
+      <p style="font-size:13px; color:var(--text-2); margin-top:12px; line-height:1.6;">An AI model analysed this document against ${esc(d.country)} regulation summaries. The result is model-generated, not a legal conclusion, and needs human review. ${d.score>=75?'The analysis reported no high-severity gaps; recommendations are listed below.':'The analysis reported gaps that may need remediation — see Compliance Analysis for details.'}</p>
     </div>`:`<div class="glass" style="padding:18px; margin-bottom:18px; text-align:center; color:var(--text-2);">${icon('loader-2',20,'spin')}<div style="margin-top:8px; font-size:13.5px;">Analysis in progress — results typically ready within a few minutes.</div></div>`}
     ${d.gaps && d.gaps.length > 0 ? `
     <div class="glass" style="padding:18px; margin-bottom:18px;">
@@ -36351,7 +36355,7 @@ function viewDocument(id){
     </div>` : ''}
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-      ${d.gaps && d.gaps.length > 0 ? `<button class="btn btn-primary" onclick="reviseAndDownloadDocument('${d.id}')">${icon('sparkles',15)} Fix with AI &amp; Download</button>` : `<button class="btn btn-primary" onclick="downloadDocumentPdf('${d.id}'); closeModal();">${icon('download',15)} Download</button>`}
+      ${d.gaps && d.gaps.length > 0 ? `<button class="btn btn-primary" onclick="reviseAndDownloadDocument(${jsq(d.id)})">${icon('sparkles',15)} Fix with AI &amp; Download</button>` : `<button class="btn btn-primary" onclick="downloadDocumentPdf(${jsq(d.id)}); closeModal();">${icon('download',15)} Download</button>`}
     </div>
   `, 640);
   if (d.gaps && d.gaps.length > 0) renderDocGapsChart(d.gaps);
@@ -36577,7 +36581,7 @@ function renderComplianceAnalysis(){
           <td>${severityBadge(i.severity)}</td>
           <td>${statusBadge(i.status)}</td>
           <td>${fmtDate(i.created)}</td>
-          <td class="sticky-col"><button class="btn btn-ghost btn-sm" onclick="viewIssue('${i.id}')">${icon('eye',13)} View</button></td>
+          <td class="sticky-col"><button class="btn btn-ghost btn-sm" onclick="viewIssue(${jsq(i.id)})">${icon('eye',13)} View</button></td>
         </tr>`).join('')}
       </tbody>
     </table>`}
@@ -36915,6 +36919,7 @@ function renderKnowledge(){
   return `
   ${pageHeader('Regulation Knowledge Base','Search and browse regulations across jurisdictions.',
     (LIVE_MODE ? STATE.isPlatformAdmin === true : DB.currentUser.role === 'admin') ? `<button class="btn btn-ghost" onclick="syncRegulationDatabase()">${icon('refresh-cw',16)} Sync Regulation Database</button>` : '')}
+  <div class="glass" role="note" style="padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:flex-start; background:var(--bg-1);">${icon('info',16)}<span style="font-size:12.5px; color:var(--text-2); line-height:1.5;"><b>Reference summaries only.</b> These entries are sample, paraphrased summaries — not official legal text and not verified against the original sources. Always check the regulator's official publication, and have material compliance decisions reviewed by a qualified person.</span></div>
   <div class="glass" style="padding:18px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
     <div class="search-box" style="flex:2; width:auto; min-width:260px;">${icon('search',16)}<input id="kbSearchInput" placeholder="Search regulations, requirements, or keywords..." value="${esc(STATE.kbSearch)}" oninput="STATE.kbSearch=this.value; render();" /></div>
     <select style="flex:1; width:auto;" onchange="STATE.kbCountry=this.value; render();">
@@ -36936,7 +36941,7 @@ function renderKnowledge(){
       <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">${r.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
       <div style="display:flex; justify-content:space-between; align-items:center; padding-top:14px; border-top:1px solid var(--border); margin-top:auto;">
         <span style="font-size:11.5px; color:var(--text-3);">${icon('clock',12)} Updated: ${fmtDate(r.updated)}</span>
-        <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer;" onclick="viewRegulation('${r.id}')">View ${icon('chevron-right',13)}</a>
+        <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer;" onclick="viewRegulation(${jsq(r.id)})">View ${icon('chevron-right',13)}</a>
       </div>
     </div>`).join('')}
   </div>`}
@@ -37110,9 +37115,9 @@ function renderReports(){
         <span class="badge badge-neutral">${r.type}</span>
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="viewReport('${r.id}')">${icon('eye',13)} View</button>
-        ${r.status==='completed'?`<button class="btn btn-primary btn-sm" style="flex:1;" onclick="downloadReport('${r.id}')">${icon('download',13)} Download</button>`:''}
-        <button class="icon-btn" style="width:34px;height:34px;" onclick="shareReport('${r.id}')">${icon('share-2',14)}</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="viewReport(${jsq(r.id)})">${icon('eye',13)} View</button>
+        ${r.status==='completed'?`<button class="btn btn-primary btn-sm" style="flex:1;" onclick="downloadReport(${jsq(r.id)})">${icon('download',13)} Download</button>`:''}
+        <button class="icon-btn" style="width:34px;height:34px;" onclick="shareReport(${jsq(r.id)})">${icon('share-2',14)}</button>
       </div>
     </div>`; }).join('')}
   </div>`}
@@ -37201,18 +37206,18 @@ function viewReport(id){
     <div style="font-size:12.5px; color:var(--text-2); margin-bottom:12px;">${esc(r.type)} • Generated ${fmtDate(r.date)}${r.versionHistory && r.versionHistory.length ? ` • ${r.versionHistory.length} earlier version${r.versionHistory.length>1?'s':''}` : ''}</div>
     <div style="margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
       <label style="margin:0;">Executive Summary</label>
-      ${r.versionHistory && r.versionHistory.length ? `<a style="font-size:12px; font-weight:600; color:var(--accent-1); cursor:pointer;" onclick="viewReportHistory('${r.id}')">View history</a>` : ''}
+      ${r.versionHistory && r.versionHistory.length ? `<a style="font-size:12px; font-weight:600; color:var(--accent-1); cursor:pointer;" onclick="viewReportHistory(${jsq(r.id)})">View history</a>` : ''}
     </div>
     <textarea id="reportSummaryEdit" rows="10" style="width:100%; font-family:inherit; font-size:13.5px; line-height:1.6; padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--bg-1); color:var(--text-0); resize:vertical;">${(r.summary||'').replace(/</g,'&lt;')}</textarea>
     <div style="display:flex; gap:10px; justify-content:space-between; margin-top:16px; flex-wrap:wrap;">
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-ghost btn-sm" onclick="regenerateReportSection('${r.id}')">${icon('sparkles',14)} Regenerate with AI</button>
-        <button class="btn btn-ghost btn-sm" onclick="saveReportEdits('${r.id}')">${icon('save',14)} Save Changes</button>
+        <button class="btn btn-ghost btn-sm" onclick="regenerateReportSection(${jsq(r.id)})">${icon('sparkles',14)} Regenerate with AI</button>
+        <button class="btn btn-ghost btn-sm" onclick="saveReportEdits(${jsq(r.id)})">${icon('save',14)} Save Changes</button>
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-        ${r.status==='completed'?`<button class="btn btn-ghost" onclick="downloadReport('${r.id}','docx')">${icon('download',15)} DOCX</button>
-        <button class="btn btn-primary" onclick="downloadReport('${r.id}','pdf')">${icon('download',15)} PDF</button>`:''}
+        ${r.status==='completed'?`<button class="btn btn-ghost" onclick="downloadReport(${jsq(r.id)},'docx')">${icon('download',15)} DOCX</button>
+        <button class="btn btn-primary" onclick="downloadReport(${jsq(r.id)},'pdf')">${icon('download',15)} PDF</button>`:''}
       </div>
     </div>
   `, 640);
@@ -37242,7 +37247,7 @@ function saveReportEdits(id){
 function regenerateReportSection(id){
   // Demo-mode default: this gets replaced with a real Gemini-backed call
   // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
-  toast('AI regeneration requires a connected Firebase + Gemini backend (LIVE_MODE).', 'info');
+  toast('AI regeneration requires live mode with a connected local AI backend.', 'info');
 }
 function downloadReport(id, format){
   format = format || 'pdf';
@@ -37534,13 +37539,13 @@ function reviseAndDownloadDocument(id){
   // in the Firebase integration layer when LIVE_MODE is on (see bottom of file).
   const d = DB.documents.find(x=>x.id===id);
   if (!d || !d.gaps || d.gaps.length === 0){ toast('No compliance gaps to fix on this document.', 'warning'); return; }
-  toast('Asking Gemini to revise the document...', 'info', 'Revising document');
+  toast('Asking the local AI model to revise the document...', 'info', 'Revising document');
   closeModal();
   setTimeout(() => {
     const revisedText = `${d.name.replace(/\.(pdf|docx)$/i,'')} — Revised Draft\n\n` +
       `This revised draft addresses ${d.gaps.length} compliance gap(s) identified in the original document:\n\n` +
       d.gaps.map((g,i) => `${i+1}. ${g.title}\nResolution: The relevant section has been updated to address this ${g.severity.toLowerCase()}-severity gap. ${g.description || ''}\n`).join('\n') +
-      `\nAll other sections of the original document remain unchanged. This is a demo-mode simulated revision — connect Firebase and Gemini for a real AI-generated rewrite of your actual document content.`;
+      `\nAll other sections of the original document remain unchanged. This is a demo-mode simulated revision — connect Firebase and the local AI backend for a real AI-generated rewrite of your actual document content.`;
     downloadTextAsPdf(d.name.replace(/\.(pdf|docx)$/i,'') + ' - Revised', 'AI-revised draft • ' + d.gaps.length + ' gap(s) addressed', revisedText);
     toast('Revised document downloaded.', 'success', 'Revision complete');
   }, 1400);
@@ -37587,8 +37592,8 @@ function renderAlerts(){
         <div style="font-weight:700; font-size:15px; margin-bottom:4px;">${esc(a.title)}</div>
         <div style="font-size:13.5px; color:var(--text-2); line-height:1.5; margin-bottom:12px;">${esc(a.body)}</div>
         <div style="display:flex; gap:10px;">
-          <button class="btn btn-primary btn-sm" onclick="alertDetails('${a.id}')">${icon('external-link',13)} View Details</button>
-          <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${a.id}')">Dismiss</button>
+          <button class="btn btn-primary btn-sm" onclick="alertDetails(${jsq(a.id)})">${icon('external-link',13)} View Details</button>
+          <button class="btn btn-ghost btn-sm" onclick="dismissAlert(${jsq(a.id)})">Dismiss</button>
         </div>
       </div>
     </div>`).join('')}
@@ -37761,8 +37766,8 @@ function renderTeam(){
         <td>${statusBadge(t.status)}</td>
         <td>${t.lastActive==='—'?'—':fmtDate(t.lastActive)}</td>
         <td>${fmtDate(t.joined)}</td>
-        <td class="sticky-col"><div style="display:flex; gap:6px;">${!canManageTeam() ? '<span style="color:var(--text-3); font-size:12px;">—</span>' : `${t.id.startsWith('inv_')?'':`<button class="icon-btn" style="width:32px;height:32px;" onclick="editMember('${t.id}')">${icon('pencil',14)}</button>`}
-          <button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="removeMember('${t.id}')">${icon('trash-2',14)}</button>`}</div></td>
+        <td class="sticky-col"><div style="display:flex; gap:6px;">${!canManageTeam() ? '<span style="color:var(--text-3); font-size:12px;">—</span>' : `${t.id.startsWith('inv_')?'':`<button class="icon-btn" style="width:32px;height:32px;" onclick="editMember(${jsq(t.id)})">${icon('pencil',14)}</button>`}
+          <button class="icon-btn" style="width:32px;height:32px; color:var(--danger);" onclick="removeMember(${jsq(t.id)})">${icon('trash-2',14)}</button>`}</div></td>
         </tr>`).join('')}
       </tbody>
     </table>`}
@@ -37903,7 +37908,7 @@ function renderMonitoring(){
         </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">${f.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
       </div>
-      <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer; white-space:nowrap; align-self:flex-start;" onclick="viewFeedDetails('${f.id}')">View Details ${icon('chevron-right',13)}</a>
+      <a style="font-size:12.5px; font-weight:700; color:var(--accent-1); cursor:pointer; white-space:nowrap; align-self:flex-start;" onclick="viewFeedDetails(${jsq(f.id)})">View Details ${icon('chevron-right',13)}</a>
     </div>`).join('')}
   </div>
   ${loadMoreButton('monitorDisplayLimit', feed.length, totalFeed, 20)}
@@ -38110,7 +38115,7 @@ function renderAdmin(){
     ${statCard('Organizations', LIVE_MODE ? (stats?stats.organizationCount:'—') : 381, LIVE_MODE?'across the platform':'+18 this month','building-2','var(--accent-1)')}
     ${statCard('Total Users', LIVE_MODE ? (stats?stats.userCount:'—') : 4812,'across all orgs','users','var(--accent-2)')}
     ${statCard('MRR', LIVE_MODE?'Not tracked':'$284,900', LIVE_MODE?'no billing integration wired in':'monthly recurring revenue','dollar-sign', LIVE_MODE?'var(--text-3)':'var(--success)')}
-    ${statCard('AI Requests (24h)', LIVE_MODE?'Not tracked':'58,204', LIVE_MODE?'no usage logging wired in':'Gemini-powered','sparkles', LIVE_MODE?'var(--text-3)':'var(--accent-3)')}
+    ${statCard('AI Requests (24h)', LIVE_MODE?'Not tracked':'58,204', LIVE_MODE?'no usage logging wired in':'demo figure','sparkles', LIVE_MODE?'var(--text-3)':'var(--accent-3)')}
   </div>
   <div class="glass" style="padding:22px;">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
@@ -38121,7 +38126,7 @@ function renderAdmin(){
     <div style="overflow-x:auto;"><table>
       <thead><tr><th>Organization</th><th>Plan</th><th>Seats</th><th>Created</th>${LIVE_MODE ? '<th>Set plan</th>' : ''}</tr></thead>
       <tbody>${orgs.map(o=>`
-        <tr><td style="font-weight:600; color:var(--text-0);">${esc(o.name)}</td><td><span class="badge badge-info">${esc(o.plan)}</span></td><td>${esc(o.seats)}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td>${LIVE_MODE && o.id ? `<td><select aria-label="Set plan for ${esc(o.name)}" onchange="setOrgPlan('${esc(o.id)}', this.value)"><option value="">Change…</option>${PLANS.map(pl=>`<option value="${pl.key}">${pl.label} (${pl.seats} seats)</option>`).join('')}</select></td>` : ''}</tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations match.</td></tr>`}</tbody>
+        <tr><td style="font-weight:600; color:var(--text-0);">${esc(o.name)}</td><td><span class="badge badge-info">${esc(o.plan)}</span></td><td>${esc(o.seats)}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td>${LIVE_MODE && o.id ? `<td><select aria-label="Set plan for ${esc(o.name)}" onchange="setOrgPlan(${jsq(o.id)}, this.value)"><option value="">Change…</option>${PLANS.map(pl=>`<option value="${pl.key}">${pl.label} (${pl.seats} seats)</option>`).join('')}</select></td>` : ''}</tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations match.</td></tr>`}</tbody>
     </table></div>
   </div>
   `;
