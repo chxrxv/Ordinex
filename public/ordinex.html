@@ -35132,6 +35132,7 @@ const DB = {
 /* ---------------------------- APP STATE ---------------------------- */
 const STATE = {
   authed:false,
+  pendingInvite:null, inviteEmailVerified:false, inviteCheckedFor:null, // invitation for the signed-in user's own email (see loadPendingInvitation)
   needsOrg:false, // true once we know a signed-in user has no organizationId yet (e.g. signed up via Google, which has no org-name field) — gates the dashboard behind a one-time onboarding screen instead of silently showing stale placeholder numbers
   appReady:false, // LIVE_MODE only: false from sign-in until the first real users/{uid} snapshot resolves — see the render() gate for why this exists
   docsReady:false, // LIVE_MODE only: false until the org's documents listener has delivered its first snapshot — recomputeDerivedAnalytics() needs this to run before DB.kpis stops reflecting the hardcoded demo defaults
@@ -35785,7 +35786,7 @@ function renderAuth(mode){
         <p style="color:var(--text-2); font-size:14.5px; margin-bottom:30px;">${isLogin?'Sign in to access your compliance dashboard':'Start your 14-day free trial. No credit card required.'}</p>
 
         <form onsubmit="event.preventDefault(); doAuth('${mode}');">
-          ${!isLogin?`<div style="margin-bottom:16px;"><label>Organization name</label><input id="authOrg" placeholder="Acme Corporation" maxlength="120" required /></div>`:''}
+          ${!isLogin?`<div style="margin-bottom:16px;"><label>Organization name <span style="font-weight:400; color:var(--text-3);">(leave empty if you were invited to an existing organization)</span></label><input id="authOrg" placeholder="Acme Corporation" maxlength="120" /></div>`:''}
           <div style="margin-bottom:16px;">
             <label>Email address</label>
             <input id="authEmail" type="email" placeholder="you@company.com" value="${prefillDemo?'sarah.chen@techcorp.com':''}" required />
@@ -35861,6 +35862,16 @@ function renderOrgOnboarding(){
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:28px;">
         <div class="sb-logo-mark">${icon('shield',17)}</div><span style="font-weight:800; font-size:19px;">Ordinex</span>
       </div>
+      ${STATE.pendingInvite ? `
+      <div class="glass" style="padding:20px; margin-bottom:26px;">
+        <h2 style="font-size:19px; font-weight:800; margin-bottom:8px;">You've been invited</h2>
+        <p style="font-size:14px; color:var(--text-2); margin-bottom:14px;">Join <b>${esc(STATE.pendingInvite.organizationName)}</b> as <b>${esc(({admin:'Admin',compliance_officer:'Compliance Officer',analyst:'Analyst',user:'User'})[STATE.pendingInvite.role] || 'User')}</b>.</p>
+        ${STATE.inviteEmailVerified
+          ? `<button class="btn btn-primary" style="width:100%; padding:12px;" onclick="acceptInvitation()">Accept invitation</button>`
+          : `<p style="font-size:13px; color:var(--text-2); margin-bottom:12px;">For security, verify your email address before accepting. We sent a verification link to your inbox.</p>
+             <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-ghost" onclick="resendVerification()">Resend verification email</button><button class="btn btn-primary" onclick="refreshVerification()">I've verified my email</button></div>`}
+      </div>
+      <p style="color:var(--text-3); font-size:13px; margin-bottom:18px;">Or create a separate organization of your own:</p>` : ''}
       <h1 style="font-size:24px; font-weight:800; margin-bottom:8px;">Name your organization</h1>
       <p style="color:var(--text-2); font-size:14.5px; margin-bottom:26px;">One last step — every document, report, and analysis in Ordinex belongs to an organization. You'll be the admin.</p>
       <form onsubmit="event.preventDefault(); completeOrgOnboarding();">
@@ -36896,7 +36907,7 @@ function renderKnowledge(){
   regs = regs.slice(0, STATE.kbDisplayLimit);
   return `
   ${pageHeader('Regulation Knowledge Base','Search and browse regulations across jurisdictions.',
-    DB.currentUser.role === 'admin' ? `<button class="btn btn-ghost" onclick="syncRegulationDatabase()">${icon('refresh-cw',16)} Sync Regulation Database</button>` : '')}
+    (LIVE_MODE ? STATE.isPlatformAdmin === true : DB.currentUser.role === 'admin') ? `<button class="btn btn-ghost" onclick="syncRegulationDatabase()">${icon('refresh-cw',16)} Sync Regulation Database</button>` : '')}
   <div class="glass" style="padding:18px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
     <div class="search-box" style="flex:2; width:auto; min-width:260px;">${icon('search',16)}<input id="kbSearchInput" placeholder="Search regulations, requirements, or keywords..." value="${esc(STATE.kbSearch)}" oninput="STATE.kbSearch=this.value; render();" /></div>
     <select style="flex:1; width:auto;" onchange="STATE.kbCountry=this.value; render();">
@@ -38695,9 +38706,9 @@ ${text.slice(0, 15000)}
     // Pending invites only readable by admins per firestore.rules — skip
     // the subscription entirely for non-admins rather than let it fail.
     if (isAdmin) {
-      const invitesQuery = fb.collection(fbDb, 'organizations', orgId, 'invites');
+      const invitesQuery = fb.query(fb.collection(fbDb, 'invitations'), fb.where('organizationId', '==', orgId));
       unsubInvites = fb.onSnapshot(invitesQuery, (snap) => {
-        pendingInvites = snap.docs.map((d) => {
+        pendingInvites = snap.docs.filter((d) => d.data().status === 'pending').map((d) => {
           const v = d.data();
           let joined = '—';
           if (v.createdAt && typeof v.createdAt.toDate === 'function') joined = v.createdAt.toDate().toISOString().slice(0, 10);
@@ -38883,6 +38894,7 @@ ${text.slice(0, 15000)}
           notificationPrefs: u.notificationPrefs || null,
         };
         STATE.needsOrg = !u.organizationId;
+        if (STATE.needsOrg && window.loadPendingInvitation) window.loadPendingInvitation(user);
         STATE.appReady = true;
         render();
         if (u.organizationId) {
@@ -38978,7 +38990,6 @@ ${text.slice(0, 15000)}
     if (!email) { toast('Enter your email address.', 'warning'); return; }
     if (!isPlausibleEmail(email)) { toast('Enter a valid email address.', 'warning'); return; }
     if (!password) { toast('Enter your password.', 'warning'); return; }
-    if (mode !== 'login' && !orgName) { toast('Enter an organization name.', 'warning'); return; }
     try {
       if (mode === 'login') {
         await fb.signInWithEmailAndPassword(fbAuth, email, password);
@@ -38986,9 +38997,9 @@ ${text.slice(0, 15000)}
       } else {
         const cred = await fb.createUserWithEmailAndPassword(fbAuth, email, password);
         await ensureUserProfile(cred.user);
-        await createOrganizationClient(orgName);
+        if (orgName) await createOrganizationClient(orgName); // no name = invited user: the onboarding screen offers the pending invitation
         sendVerificationEmail().catch((e) => console.error('Verification email failed to send:', e));
-        toast('Your ORDINEX workspace is ready.', 'success', 'Account created');
+        toast(orgName ? 'Your ORDINEX workspace is ready.' : 'Account created. Verify your email to accept your invitation.', 'success', 'Account created');
       }
     } catch (e) {
       toast(friendlyAuthError(e), 'danger', 'Error');
@@ -39074,6 +39085,61 @@ ${text.slice(0, 15000)}
     });
     if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body?.error?.message || `Request failed (${res.status})`); }
   }
+
+  // ---- Invitations. Model: invitations/{lower-cased invitee email} (see firestore.rules). The invitee must have a
+  // VERIFIED email; accepting is two ordered writes (mark the invitation accepted, then set own org/role), each
+  // checked by the rules, so a user can only ever join the org + role their own invitation names. ----
+  window.loadPendingInvitation = async function (user) {
+    const email = (user && user.email || '').trim().toLowerCase();
+    STATE.inviteEmailVerified = !!(user && user.emailVerified);
+    if (!email || STATE.inviteCheckedFor === email) return;
+    STATE.inviteCheckedFor = email;
+    try {
+      const snap = await fb.getDoc(fb.doc(fbDb, 'invitations', email));
+      const v = snap.exists() ? snap.data() : null;
+      const live = v && v.status === 'pending' && v.expiresAt && typeof v.expiresAt.toMillis === 'function' && v.expiresAt.toMillis() > Date.now();
+      STATE.pendingInvite = live ? { organizationId: v.organizationId, organizationName: v.organizationName || 'an organization', role: v.role } : null;
+    } catch (e) { STATE.pendingInvite = null; console.error('Could not check for an invitation:', e.code || e.message); }
+    if (STATE.needsOrg) render();
+  };
+  window.resendVerification = async function () {
+    try { await sendVerificationEmail(); toast('Verification email sent. Check your inbox.', 'success'); }
+    catch (e) { toast('Could not send the verification email: ' + e.message, 'danger', 'Error'); }
+  };
+  window.refreshVerification = async function () {
+    try {
+      await fbAuth.currentUser.reload();
+      await fbAuth.currentUser.getIdToken(true); // the rules read email_verified from the ID token
+      STATE.inviteEmailVerified = !!fbAuth.currentUser.emailVerified;
+      if (!STATE.inviteEmailVerified) toast('Your email is not verified yet. Open the link we emailed you, then try again.', 'warning');
+      render();
+    } catch (e) { toast('Could not refresh: ' + e.message, 'danger', 'Error'); }
+  };
+  window.acceptInvitation = async function () {
+    const inv = STATE.pendingInvite;
+    if (!inv) return;
+    try {
+      const user = fbAuth.currentUser;
+      await user.getIdToken(true);
+      const key = user.email.trim().toLowerCase();
+      try {
+        await fb.updateDoc(fb.doc(fbDb, 'invitations', key), { status: 'accepted', acceptedBy: user.uid, acceptedAt: fb.serverTimestamp() });
+      } catch (e) {
+        // A retry after the first step already succeeded finds the invitation no longer pending; the join below
+        // still works inside the rules' 10-minute window, and is refused outside it.
+        if (e.code !== 'permission-denied') throw e;
+      }
+      await fb.updateDoc(fb.doc(fbDb, 'users', user.uid), { organizationId: inv.organizationId, role: inv.role });
+      await writeAuditLog({ organizationId: inv.organizationId, actorUid: user.uid, action: 'Invitation accepted', target: key });
+      STATE.pendingInvite = null;
+      toast('Welcome to ' + inv.organizationName + '.', 'success', 'Invitation accepted');
+      // STATE.needsOrg flips back to false via the live users/{uid} listener.
+    } catch (e) {
+      toast(e.code === 'permission-denied'
+        ? 'This invitation can no longer be accepted (expired, already used, email not verified, or withdrawn). Ask your admin to send a new one.'
+        : 'Could not accept the invitation: ' + e.message, 'danger', 'Error');
+    }
+  };
 
   // ---- Documents: no Cloud Storage on the free plan (see SETUP.md), so
   // the file never leaves the browser as a binary — it's parsed client-side
@@ -39637,7 +39703,7 @@ ${docsSummary}`;
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
-      if (DB.currentUser.role !== 'admin') throw new Error('Only an organization admin can sync the regulation database.');
+      if (STATE.isPlatformAdmin !== true) throw new Error('Only a platform admin can update the shared regulation database (organization admins have read-only access).');
       await Promise.all(REGULATION_SEED_SET.map(({ id, ...data }) =>
         fb.setDoc(fb.doc(fbDb, 'regulations', id), { ...data, lastSyncedAt: fb.serverTimestamp(), source: 'manual-seed' }, { merge: true })
       ));
@@ -39813,7 +39879,7 @@ ${docsSummary}`;
   window.removeMember = async function (id) {
     try {
       if (id.startsWith('inv_')) {
-        await fb.deleteDoc(fb.doc(fbDb, 'organizations', DB.currentUser.orgId, 'invites', id.slice(4)));
+        await fb.deleteDoc(fb.doc(fbDb, 'invitations', id.slice(4)));
         toast('Invite cancelled.', 'info');
       } else {
         if (id === fbAuth.currentUser.uid) throw new Error("You can't remove yourself. Ask another admin.");
@@ -39876,8 +39942,11 @@ ${docsSummary}`;
     try {
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
-      await fb.addDoc(fb.collection(fbDb, 'organizations', orgId, 'invites'), {
-        email, role, invitedBy: uid, status: 'pending', createdAt: fb.serverTimestamp(),
+      const emailKey = email.trim().toLowerCase();
+      await fb.setDoc(fb.doc(fbDb, 'invitations', emailKey), {
+        email: emailKey, organizationId: orgId, organizationName: DB.currentUser.org || '', role,
+        invitedBy: uid, status: 'pending', createdAt: fb.serverTimestamp(),
+        expiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),   // the rules cap this at 15 days
       });
       await writeAuditLog({ organizationId: orgId, actorUid: uid, action: 'Team member invited', target: email });
       closeModal();
@@ -39886,7 +39955,7 @@ ${docsSummary}`;
       // subscribeToOrgTeam's onSnapshot on the invites subcollection picks
       // this up automatically.
     } catch (e) {
-      toast('Invite failed: ' + e.message, 'danger', 'Error');
+      toast(e.code === 'permission-denied' ? 'Invite failed: only admins can invite, and an address with a live invitation from another organization cannot be re-invited until it expires.' : 'Invite failed: ' + e.message, 'danger', 'Error');
     }
   };
   window.saveMemberRole = async function (id) {

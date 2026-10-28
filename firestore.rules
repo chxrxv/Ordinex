@@ -54,6 +54,19 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid));
     }
 
+    function validRole(r) {
+      return r in ['admin', 'compliance_officer', 'analyst', 'user'];
+    }
+
+    // Email from the caller's verified ID token. Invitations are keyed by the lower-cased invitee email.
+    function callerEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function hasVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+
     // Deny everything by default; every collection below explicitly opts in.
     match /{document=**} {
       allow read, write: if false;
@@ -76,7 +89,27 @@ service cloud.firestore {
                     && request.resource.data.role == 'admin'
                     && request.resource.data.organizationId is string
                     && get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.createdBy == request.auth.uid;
-      allow update: if isAdmin() && isSameOrg(resource.data.organizationId); // admins can manage roles
+      // Admins manage roles of members of THEIR org, and may remove a member (org+role -> null). They may NOT
+      // change organizationId to anything else: that would let an admin of org A plant a colluding account as
+      // admin of any org B. Only role/organizationId may change.
+      allow update: if isAdmin() && isSameOrg(resource.data.organizationId)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'organizationId'])
+                    && ((request.resource.data.organizationId == resource.data.organizationId && validRole(request.resource.data.role))
+                        || (request.resource.data.organizationId == null && request.resource.data.role == null));
+      // Joining an org by invitation: only a verified-email user with NO org, only to the org/role named in an
+      // invitation addressed to their own email that they accepted within the last 10 minutes (single use:
+      // the invitation is already 'accepted'; once joined, resource.data.organizationId != null blocks replay).
+      allow update: if hasVerifiedEmail() && request.auth.uid == uid
+                    && resource.data.organizationId == null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'organizationId'])
+                    && request.resource.data.organizationId is string
+                    && validRole(request.resource.data.role)
+                    && exists(/databases/$(database)/documents/invitations/$(callerEmail()))
+                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.status == 'accepted'
+                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.acceptedBy == request.auth.uid
+                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.organizationId == request.resource.data.organizationId
+                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.role == request.resource.data.role
+                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.acceptedAt > request.time - duration.value(10, 'm');
       allow update: if isPlatformAdmin();
       // Profile bootstrap only: the app creates it with role/org null (ensureUserProfile). Without this
       // a new user could create their own doc as 'admin' of ANY organization id.
@@ -91,7 +124,7 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /organizations/{orgId} {
       allow read: if isSameOrg(orgId) || isPlatformAdmin();
-      allow update: if isAdmin() && isSameOrg(orgId);
+      allow update: if isAdmin() && isSameOrg(orgId) && request.resource.data.createdBy == resource.data.createdBy; // createdBy feeds the bootstrap rule; never editable
       allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid; // org creation is a direct client write now (no Cloud Function) — see SETUP.md
       allow delete: if false; // never allow client-side org deletion
     }
@@ -110,7 +143,8 @@ service cloud.firestore {
       // reasoning as complianceReports/riskAssessments below.
       allow update: if isSameOrg(resource.data.organizationId)
                     && request.resource.data.organizationId == resource.data.organizationId   // cannot move a document to another org
-                    && request.resource.data.uploadedBy == resource.data.uploadedBy;
+                    && request.resource.data.uploadedBy == resource.data.uploadedBy
+                    && request.resource.data.get('uploadedAt', null) == resource.data.get('uploadedAt', null);
       allow delete: if isAdminOrComplianceOfficer() && isSameOrg(resource.data.organizationId);
     }
 
@@ -127,7 +161,8 @@ service cloud.firestore {
       // create and update are separate: the old combined rule let anyone overwrite another org's
       // report by writing their own organizationId into it.
       allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
-      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
+                    && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -146,7 +181,9 @@ service cloud.firestore {
       // reasoning as complianceReports above. This also loosens the manual
       // "Mark Resolved" button from admin/compliance_officer/analyst-only
       // to any org member, a real (documented) trade-off of this build.
-      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
+                    && request.resource.data.get('documentId', null) == resource.data.get('documentId', null)
+                    && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
       allow delete: if false;
     }
 
@@ -158,7 +195,8 @@ service cloud.firestore {
       // Same reasoning as complianceReports: "New Assessment" is shown to
       // every org member in the UI and used to run via Admin-SDK bypass.
       allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
-      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
+                    && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -168,7 +206,9 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /regulations/{regId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin(); // any org admin can run "Sync Regulation Database" — see SETUP.md
+      // Shared by ALL tenants, so no tenant admin may write it: platform admins only (a doc in
+      // platformAdmins/{uid}, created by you in the Firebase console). Org admins and members are read-only.
+      allow write: if isPlatformAdmin();
     }
 
     // ---------------------------------------------------------------
@@ -176,11 +216,50 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /notifications/{notifId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // The recipient may only flip `read`; userId/organizationId/content are immutable (no reassigning or moving).
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid
-                    && request.resource.data.userId == resource.data.userId
-                    && request.resource.data.organizationId == resource.data.organizationId;
-      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller(); // client fans these out now instead of a Cloud Function trigger
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Members fan notifications out to their org colleagues (client-side, no backend). The RECIPIENT must be a
+      // current member of the caller's own org, so nothing can be sent into another tenant.
+      allow create: if isSignedIn()
+                    && request.resource.data.organizationId == orgIdOfCaller()
+                    && request.resource.data.userId is string
+                    && exists(/databases/$(database)/documents/users/$(request.resource.data.userId))
+                    && get(/databases/$(database)/documents/users/$(request.resource.data.userId)).data.organizationId == orgIdOfCaller();
+    }
+
+    // ---------------------------------------------------------------
+    // INVITATIONS  (invitations/{lower-cased invitee email}) - one pending invitation per email.
+    // Flow: admin creates -> invitee (verified email) marks it accepted -> invitee sets own org/role (users rule).
+    // Org name is denormalised into the invitation because an invitee cannot read an org they are not in yet.
+    // ---------------------------------------------------------------
+    function validNewInvitation(inviteId) {
+      let d = request.resource.data;
+      return isAdmin() && isSameOrg(d.organizationId)
+          && d.keys().hasOnly(['email', 'organizationId', 'organizationName', 'role', 'invitedBy', 'status', 'createdAt', 'expiresAt'])
+          && d.email is string && d.email == inviteId && inviteId == inviteId.lower()
+          && validRole(d.role) && d.status == 'pending' && d.invitedBy == request.auth.uid
+          && d.createdAt == request.time
+          && d.expiresAt is timestamp && d.expiresAt > request.time && d.expiresAt <= request.time + duration.value(15, 'd');
+    }
+
+    match /invitations/{inviteId} {
+      allow get: if (isSignedIn() && request.auth.token.email != null && inviteId == callerEmail())
+                 || (isAdmin() && isSameOrg(resource.data.organizationId));
+      allow list: if isAdmin() && isSameOrg(resource.data.organizationId);
+      allow create: if validNewInvitation(inviteId);
+      // Re-inviting: same org's admin, or any admin if the old one is finished/expired (never over another org's live invite).
+      allow update: if validNewInvitation(inviteId)
+                    && (isSameOrg(resource.data.organizationId) || resource.data.status != 'pending' || resource.data.expiresAt < request.time);
+      // Acceptance by the invitee: verified email, still pending and unexpired, touching only status/acceptedBy/acceptedAt.
+      allow update: if hasVerifiedEmail() && inviteId == callerEmail()
+                    && resource.data.status == 'pending' && resource.data.expiresAt > request.time
+                    && request.resource.data.status == 'accepted'
+                    && request.resource.data.acceptedBy == request.auth.uid
+                    && request.resource.data.acceptedAt == request.time
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedBy', 'acceptedAt']);
+      allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
     // ---------------------------------------------------------------

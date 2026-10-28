@@ -108,13 +108,14 @@ test('audit logs: admins of the org read; immutable; actor must be the caller', 
   await assertSucceeds(setDoc(doc(as('bob'), 'auditLogs', 'l2'), { organizationId: 'orgA', actorUid: 'bob' }));
   await assertFails(setDoc(doc(as('bob'), 'auditLogs', 'l3'), { organizationId: 'orgA', actorUid: 'alice' }));
 });
-test('platformAdmins and unknown collections are closed; regulations writable only by admins', async () => {
+test('platformAdmins and unknown collections are closed; regulations writable only by platform admins', async () => {
   await assertFails(getDoc(doc(as('alice'), 'platformAdmins', 'root')));
   await assertFails(setDoc(doc(as('alice'), 'platformAdmins', 'alice'), { x: 1 }));      // cannot grant yourself platform admin
   await assertFails(setDoc(doc(as('alice'), 'secrets', 's'), { x: 1 }));
   await assertFails(getDoc(doc(as('alice'), 'secrets', 's')));
   await assertSucceeds(getDoc(doc(as('bob'), 'regulations', 'r1')));
   await assertFails(setDoc(doc(as('bob'), 'regulations', 'r2'), { name: 'x' }));
-  await assertSucceeds(setDoc(doc(as('alice'), 'regulations', 'r2'), { name: 'x' }));
+  await assertFails(setDoc(doc(as('alice'), 'regulations', 'r2'), { name: 'x' }));          // org admins are read-only now (see access.test.js)
+  await assertSucceeds(setDoc(doc(as('root'), 'regulations', 'r2'), { name: 'x' }));          // platform admin
 });
 
