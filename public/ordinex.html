@@ -34718,6 +34718,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/mammoth.browser.min.js"></script>
 <script src="vendor/docx.iife.js"></script>
+<script src="firestore-rest.js"></script>
 </head>
 <body>
 
@@ -35132,7 +35133,7 @@ const DB = {
 /* ---------------------------- APP STATE ---------------------------- */
 const STATE = {
   authed:false,
-  pendingInvite:null, inviteEmailVerified:false, inviteCheckedFor:null, // invitation for the signed-in user's own email (see loadPendingInvitation)
+  pendingInvites:[], inviteEmailVerified:false, inviteCheckedFor:null, // invitation for the signed-in user's own email (see loadPendingInvitation)
   needsOrg:false, // true once we know a signed-in user has no organizationId yet (e.g. signed up via Google, which has no org-name field) — gates the dashboard behind a one-time onboarding screen instead of silently showing stale placeholder numbers
   appReady:false, // LIVE_MODE only: false from sign-in until the first real users/{uid} snapshot resolves — see the render() gate for why this exists
   docsReady:false, // LIVE_MODE only: false until the org's documents listener has delivered its first snapshot — recomputeDerivedAnalytics() needs this to run before DB.kpis stops reflecting the hardcoded demo defaults
@@ -35313,7 +35314,10 @@ const NAV_SECTIONS = [
     { key:'settings', label:'Settings', icon:'settings' },
   ]},
 ];
-if(!LIVE_MODE || STATE.isPlatformAdmin===true){ NAV_SECTIONS.push({ label:'Platform', items:[ { key:'admin', label:'Admin Console', icon:'server-cog' } ] }); }
+// The Platform section depends on STATE.isPlatformAdmin, which in live mode is only known AFTER sign-in (checkPlatformAdmin),
+// so it must be evaluated on every render. (It used to be pushed once at script load, so platform admins never saw it.)
+const PLATFORM_NAV_SECTION = { label:'Platform', items:[ { key:'admin', label:'Admin Console', icon:'server-cog' } ] };
+function navSections(){ return (!LIVE_MODE || STATE.isPlatformAdmin===true) ? [...NAV_SECTIONS, PLATFORM_NAV_SECTION] : NAV_SECTIONS; }
 
 function renderSidebar(){
   const collapsed = STATE.sidebarCollapsed;
@@ -35327,7 +35331,7 @@ function renderSidebar(){
       </div>
     </div>
     <nav class="sb-nav scrollbar-none">
-      ${NAV_SECTIONS.map(sec => `
+      ${navSections().map(sec => `
         <div class="sb-section-label">${sec.label}</div>
         ${sec.items.map(it => `
           <a class="sb-item ${STATE.appPage===it.key?'active':''}" onclick="go('${it.key}')">
@@ -35401,7 +35405,7 @@ function computeGlobalSearchResults(){
   // org with zero documents/reports/regulations synced yet, where the data
   // collections below are empty and would otherwise always say "no matches"
   // no matter what you typed.
-  const pages = NAV_SECTIONS.flatMap(s=>s.items).filter(p=>p.label.toLowerCase().includes(q)).slice(0,5);
+  const pages = navSections().flatMap(s=>s.items).filter(p=>p.label.toLowerCase().includes(q)).slice(0,5);
   const regulations = DB.regulations.filter(r=>
     r.name.toLowerCase().includes(q) || r.short.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) || (r.tags||[]).some(t=>t.toLowerCase().includes(q))
   ).slice(0,4);
@@ -35862,14 +35866,17 @@ function renderOrgOnboarding(){
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:28px;">
         <div class="sb-logo-mark">${icon('shield',17)}</div><span style="font-weight:800; font-size:19px;">Ordinex</span>
       </div>
-      ${STATE.pendingInvite ? `
-      <div class="glass" style="padding:20px; margin-bottom:26px;">
-        <h2 style="font-size:19px; font-weight:800; margin-bottom:8px;">You've been invited</h2>
-        <p style="font-size:14px; color:var(--text-2); margin-bottom:14px;">Join <b>${esc(STATE.pendingInvite.organizationName)}</b> as <b>${esc(({admin:'Admin',compliance_officer:'Compliance Officer',analyst:'Analyst',user:'User'})[STATE.pendingInvite.role] || 'User')}</b>.</p>
-        ${STATE.inviteEmailVerified
-          ? `<button class="btn btn-primary" style="width:100%; padding:12px;" onclick="acceptInvitation()">Accept invitation</button>`
-          : `<p style="font-size:13px; color:var(--text-2); margin-bottom:12px;">For security, verify your email address before accepting. We sent a verification link to your inbox.</p>
-             <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-ghost" onclick="resendVerification()">Resend verification email</button><button class="btn btn-primary" onclick="refreshVerification()">I've verified my email</button></div>`}
+      ${STATE.pendingInvites.length ? `
+      <div class="glass" style="padding:20px; margin-bottom:26px;" id="pendingInvitations">
+        <h2 style="font-size:19px; font-weight:800; margin-bottom:12px;">You've been invited</h2>
+        ${STATE.pendingInvites.map((inv, i) => `
+        <div style="padding:12px 0; ${i ? 'border-top:1px solid var(--border);' : ''}">
+          <p style="font-size:14px; color:var(--text-2); margin-bottom:10px;">Join <b>${esc(inv.organizationName)}</b> as <b>${esc(({admin:'Admin',compliance_officer:'Compliance Officer',analyst:'Analyst',user:'User'})[inv.role] || 'User')}</b>.</p>
+          ${STATE.inviteEmailVerified
+            ? `<button class="btn btn-primary" style="width:100%; padding:12px;" onclick="acceptInvitation(${i})">Accept invitation to ${esc(inv.organizationName)}</button>`
+            : `<p style="font-size:13px; color:var(--text-2); margin-bottom:12px;">For security, verify your email address before accepting. We sent a verification link to your inbox.</p>
+               <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-ghost" onclick="resendVerification()">Resend verification email</button><button class="btn btn-primary" onclick="refreshVerification()">I've verified my email</button></div>`}
+        </div>`).join('')}
       </div>
       <p style="color:var(--text-3); font-size:13px; margin-bottom:18px;">Or create a separate organization of your own:</p>` : ''}
       <h1 style="font-size:24px; font-weight:800; margin-bottom:8px;">Name your organization</h1>
@@ -37949,13 +37956,13 @@ const PLAN_PRICES = { Starter:'$0', Professional:'$799', Enterprise:'Contact sal
 function openUpgradePlanModal(){
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:18px;"><h3 style="font-size:19px; font-weight:800;">Upgrade Plan</h3><button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button></div>
-    <p style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">${LIVE_MODE ? "This build has no connected payment provider, so changing plans here updates your organization's tier and seat limit directly — no card is charged." : 'Demo mode — plan changes here are not saved.'}</p>
+    <p style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">${LIVE_MODE ? (STATE.isPlatformAdmin === true ? "No payment provider is connected: as a platform admin you set an organization's tier and seat limit directly — no card is charged." : "No payment provider is connected, so plan and seat limits can only be changed by the platform administrator. Contact them to change your plan.") : 'Demo mode — plan changes here are not saved.'}</p>
     ${PLANS.map(p=>`
     <div class="glass" style="padding:16px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
       <div><div style="font-weight:700; font-size:15px;">${p.label}</div><div style="font-size:12.5px; color:var(--text-2);">${p.seats} seats</div></div>
       <div style="display:flex; align-items:center; gap:12px;">
         <div style="font-weight:700;">${p.price==null?'Contact sales':(p.price===0?'Free':'$'+p.price+'/mo')}</div>
-        ${DB.organization.plan===p.label ? `<span class="badge badge-success">Current</span>` : `<button class="btn btn-primary btn-sm" onclick="changePlan('${p.key}')">Select</button>`}
+        ${DB.organization.plan===p.label ? `<span class="badge badge-success">Current</span>` : ((LIVE_MODE && STATE.isPlatformAdmin !== true) ? '' : `<button class="btn btn-primary btn-sm" onclick="changePlan('${p.key}')">Select</button>`)}
       </div>
     </div>`).join('')}
   `, 520);
@@ -38112,9 +38119,9 @@ function renderAdmin(){
     </div>
     ${LIVE_MODE ? `<p style="font-size:11.5px; color:var(--text-3); margin-bottom:12px;">Showing the most recent 200 organizations by creation date — older ones aren't listed here.</p>` : ''}
     <div style="overflow-x:auto;"><table>
-      <thead><tr><th>Organization</th><th>Plan</th><th>Seats</th><th>Created</th></tr></thead>
+      <thead><tr><th>Organization</th><th>Plan</th><th>Seats</th><th>Created</th>${LIVE_MODE ? '<th>Set plan</th>' : ''}</tr></thead>
       <tbody>${orgs.map(o=>`
-        <tr><td style="font-weight:600; color:var(--text-0);">${esc(o.name)}</td><td><span class="badge badge-info">${esc(o.plan)}</span></td><td>${esc(o.seats)}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations match.</td></tr>`}</tbody>
+        <tr><td style="font-weight:600; color:var(--text-0);">${esc(o.name)}</td><td><span class="badge badge-info">${esc(o.plan)}</span></td><td>${esc(o.seats)}</td><td>${o.createdAt?fmtDate(o.createdAt.slice(0,10)):'—'}</td>${LIVE_MODE && o.id ? `<td><select aria-label="Set plan for ${esc(o.name)}" onchange="setOrgPlan('${esc(o.id)}', this.value)"><option value="">Change…</option>${PLANS.map(pl=>`<option value="${pl.key}">${pl.label} (${pl.seats} seats)</option>`).join('')}</select></td>` : ''}</tr>`).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--text-2); padding:20px;">No organizations match.</td></tr>`}</tbody>
     </table></div>
   </div>
   `;
@@ -39095,11 +39102,12 @@ ${text.slice(0, 15000)}
     if (!email || STATE.inviteCheckedFor === email) return;
     STATE.inviteCheckedFor = email;
     try {
-      const snap = await fb.getDoc(fb.doc(fbDb, 'invitations', email));
-      const v = snap.exists() ? snap.data() : null;
-      const live = v && v.status === 'pending' && v.expiresAt && typeof v.expiresAt.toMillis === 'function' && v.expiresAt.toMillis() > Date.now();
-      STATE.pendingInvite = live ? { organizationId: v.organizationId, organizationName: v.organizationName || 'an organization', role: v.role } : null;
-    } catch (e) { STATE.pendingInvite = null; console.error('Could not check for an invitation:', e.code || e.message); }
+      // The rules only allow queries constrained to the caller's own (lower-cased) email.
+      const snap = await fb.getDocs(fb.query(fb.collection(fbDb, 'invitations'), fb.where('email', '==', email)));
+      STATE.pendingInvites = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        .filter((v) => v.status === 'pending' && v.expiresAt && typeof v.expiresAt.toMillis === 'function' && v.expiresAt.toMillis() > Date.now())
+        .map((v) => ({ id: v.id, organizationId: v.organizationId, organizationName: v.organizationName || 'an organization', role: v.role }));
+    } catch (e) { STATE.pendingInvites = []; console.error('Could not check for invitations:', e.code || e.message); }
     if (STATE.needsOrg) render();
   };
   window.resendVerification = async function () {
@@ -39115,23 +39123,23 @@ ${text.slice(0, 15000)}
       render();
     } catch (e) { toast('Could not refresh: ' + e.message, 'danger', 'Error'); }
   };
-  window.acceptInvitation = async function () {
-    const inv = STATE.pendingInvite;
+  window.acceptInvitation = async function (index) {
+    const inv = STATE.pendingInvites[index];
     if (!inv) return;
     try {
       const user = fbAuth.currentUser;
-      await user.getIdToken(true);
-      const key = user.email.trim().toLowerCase();
-      try {
-        await fb.updateDoc(fb.doc(fbDb, 'invitations', key), { status: 'accepted', acceptedBy: user.uid, acceptedAt: fb.serverTimestamp() });
-      } catch (e) {
-        // A retry after the first step already succeeded finds the invitation no longer pending; the join below
-        // still works inside the rules' 10-minute window, and is refused outside it.
-        if (e.code !== 'permission-denied') throw e;
-      }
-      await fb.updateDoc(fb.doc(fbDb, 'users', user.uid), { organizationId: inv.organizationId, role: inv.role });
-      await writeAuditLog({ organizationId: inv.organizationId, actorUid: user.uid, action: 'Invitation accepted', target: key });
-      STATE.pendingInvite = null;
+      const idToken = await user.getIdToken(true); // refresh so the token carries email_verified
+      // ONE atomic commit: mark the invitation accepted AND join that org/role. The rules require both together
+      // (getAfter), so an invitation can be used exactly once and never half-applied.
+      await OrdinexFirestoreRest.commit({
+        projectId: firebaseConfig.projectId, idToken,
+        writes: [
+          { path: 'invitations/' + inv.id, fields: { status: 'accepted', acceptedBy: user.uid }, serverTimestamps: ['acceptedAt'] },
+          { path: 'users/' + user.uid, fields: { organizationId: inv.organizationId, role: inv.role } },
+        ],
+      });
+      await writeAuditLog({ organizationId: inv.organizationId, actorUid: user.uid, action: 'Invitation accepted', target: (user.email || '').toLowerCase() });
+      STATE.pendingInvites = [];
       toast('Welcome to ' + inv.organizationName + '.', 'success', 'Invitation accepted');
       // STATE.needsOrg flips back to false via the live users/{uid} listener.
     } catch (e) {
@@ -39943,7 +39951,7 @@ ${docsSummary}`;
       const uid = fbAuth.currentUser.uid;
       const orgId = DB.currentUser.orgId;
       const emailKey = email.trim().toLowerCase();
-      await fb.setDoc(fb.doc(fbDb, 'invitations', emailKey), {
+      await fb.setDoc(fb.doc(fbDb, 'invitations', orgId + '_' + emailKey), {
         email: emailKey, organizationId: orgId, organizationName: DB.currentUser.org || '', role,
         invitedBy: uid, status: 'pending', createdAt: fb.serverTimestamp(),
         expiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),   // the rules cap this at 15 days
@@ -39955,7 +39963,7 @@ ${docsSummary}`;
       // subscribeToOrgTeam's onSnapshot on the invites subcollection picks
       // this up automatically.
     } catch (e) {
-      toast(e.code === 'permission-denied' ? 'Invite failed: only admins can invite, and an address with a live invitation from another organization cannot be re-invited until it expires.' : 'Invite failed: ' + e.message, 'danger', 'Error');
+      toast(e.code === 'permission-denied' ? 'Invite failed: only organization admins can send invitations.' : 'Invite failed: ' + e.message, 'danger', 'Error');
     }
   };
   window.saveMemberRole = async function (id) {
@@ -39975,10 +39983,27 @@ ${docsSummary}`;
   // ---- Billing: real plan change, direct Firestore write to the
   // organization doc (admin-only per firestore.rules). No payment is
   // collected — see the note above openUpgradePlanModal(). ----
+  // Billing fields are protected by firestore.rules: only a platform admin may change plan/seats (org admins can
+  // only rename). There is no payment provider, so this is an operator action, not a purchase.
+  window.setOrgPlan = async function (orgId, planKey) {
+    const p = PLANS.find((x) => x.key === planKey);
+    if (!p || !orgId) return;
+    try {
+      if (STATE.isPlatformAdmin !== true) throw new Error('Only a platform admin can change plans or seat limits.');
+      await fb.updateDoc(fb.doc(fbDb, 'organizations', orgId), { plan: planKey, seats: p.seats });
+      await writeAuditLog({ organizationId: orgId, actorUid: fbAuth.currentUser.uid, action: 'Plan changed by platform admin', target: p.label });
+      const row = (DB.adminOrgs || []).find((o) => o.id === orgId); if (row) { row.plan = planKey; row.seats = p.seats; }
+      toast('Set ' + p.label + ' plan (' + p.seats + ' seats).', 'success');
+      render();
+    } catch (e) {
+      toast('Could not change plan: ' + (e.code === 'permission-denied' ? 'not permitted by the security rules.' : e.message), 'danger', 'Error');
+    }
+  };
   window.changePlan = async function (planKey) {
     const p = PLANS.find((x) => x.key === planKey);
     if (!p) return;
     try {
+      if (STATE.isPlatformAdmin !== true) throw new Error('Only the platform administrator can change plans or seat limits.');
       await fb.updateDoc(fb.doc(fbDb, 'organizations', DB.currentUser.orgId), { plan: planKey, seats: p.seats });
       await writeAuditLog({ organizationId: DB.currentUser.orgId, actorUid: fbAuth.currentUser.uid, action: 'Plan changed', target: p.label });
       closeModal();

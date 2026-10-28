@@ -21,8 +21,8 @@ beforeEach(async () => {
     const u = (uid, org, role) => setDoc(doc(db, 'users', uid), { uid, organizationId: org, role });
     await Promise.all([
       u('alice', 'orgA', 'admin'), u('bob', 'orgA', 'analyst'), u('carol', 'orgB', 'admin'), u('dave', null, null),
-      setDoc(doc(db, 'organizations', 'orgA'), { name: 'A', createdBy: 'alice' }),
-      setDoc(doc(db, 'organizations', 'orgB'), { name: 'B', createdBy: 'carol' }),
+      setDoc(doc(db, 'organizations', 'orgA'), { name: 'A', createdBy: 'alice', plan: 'starter', seats: 5 }),
+      setDoc(doc(db, 'organizations', 'orgB'), { name: 'B', createdBy: 'carol', plan: 'starter', seats: 5 }),
       setDoc(doc(db, 'documents', 'docA'), { organizationId: 'orgA', uploadedBy: 'alice', name: 'a.pdf' }),
       setDoc(doc(db, 'complianceReports', 'repA'), { organizationId: 'orgA', title: 'A report' }),
       setDoc(doc(db, 'riskAssessments', 'riskA'), { organizationId: 'orgA', score: 10 }),
@@ -61,7 +61,7 @@ test('users cannot self-promote or switch org; bootstrap works only for an org t
   await assertFails(updateDoc(doc(as('bob'), 'users', 'bob'), { organizationId: 'orgB' }));
   await assertSucceeds(updateDoc(doc(as('bob'), 'users', 'bob'), { displayName: 'Bobby' }));
   await assertFails(updateDoc(doc(as('dave'), 'users', 'dave'), { role: 'admin', organizationId: 'orgA' }));   // not created by dave
-  await assertSucceeds(setDoc(doc(as('dave'), 'organizations', 'orgD'), { name: 'D', createdBy: 'dave' }));
+  await assertSucceeds(setDoc(doc(as('dave'), 'organizations', 'orgD'), { name: 'D', createdBy: 'dave', plan: 'starter', seats: 5 }));
   await assertSucceeds(updateDoc(doc(as('dave'), 'users', 'dave'), { role: 'admin', organizationId: 'orgD' }));
 });
 test('documents: create only into own org as self; no cross-org move or overwrite', async () => {

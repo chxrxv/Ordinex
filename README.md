@@ -33,7 +33,7 @@ Document ingestion (PDF/DOCX/TXT, page/paragraph references; scanned and encrypt
 - Jurisdiction-aware document analysis with evidence passages and human-review flags
 - Deterministic, documented risk scoring (`local-ai/src/risk.js`)
 - Regulation comparison, searchable knowledge base, risk assessment, alerts, reports (the main app's report export uses client-side libraries; it was not browser-tested in the latest security review)
-- Team management with roles (Admin, Compliance Officer, Analyst, User) and **email-verified, expiring, single-use invitations**
+- Team management with roles (Admin, Compliance Officer, Analyst, User) and **email-verified, expiring, single-use, atomically accepted invitations**
 - Firebase Authentication (email/password and Google) and real-time Firestore data
 
 ## Regulatory data verification status
@@ -71,26 +71,29 @@ The committed `public/ordinex.html` contains **placeholders** for the Firebase w
 ```powershell
 npm run ai:test            # backend unit tests
 npm run ai:dataset         # regulatory dataset validator
-npm run rules:test         # Firestore rules, against the Firebase emulator (needs Java; cd rules-test ; npm install)
+npm run rules:test         # Firestore rules (31 tests), against the Firebase emulator (needs Java; cd rules-test ; npm install)
+npm run ai:ui:test:emulator # the REAL signed-in app (sign-up, org, invitations, billing, regulations) against the Auth + Firestore emulators
 npm run ai:ui:test         # browser + API tests: real Chromium, real backend, MOCK Ollama
 npm run ai:ui:test:e2e     # real browser -> backend -> real Ollama qwen3:4b (needs the model installed)
 npm run ai:eval            # real-model evaluation on 10 synthetic cases
 node --test functions-optional-blaze-upgrade/test/evidence-model.test.js
 ```
 
-One-time: `cd local-ai ; npx playwright install chromium`. Mock-model tests exercise UI and failure paths only; they are not evidence of AI quality. The 10-case evaluation is synthetic and says nothing about real-world legal accuracy. The main app's signed-in screens are **not** covered by browser tests; the Firestore rules are covered by emulator tests using the same payload shapes the app writes.
+One-time: `cd local-ai ; npx playwright install chromium`. Mock-model tests exercise UI and failure paths only; they are not evidence of AI quality. The 10-case evaluation is synthetic and says nothing about real-world legal accuracy. The emulator suite drives the real app with a fake `demo-ordinex` Firebase project (never the real one) and fails if any request would reach a real Google/Firebase API host. It covers sign-up, organisation creation, inviting, verifying and accepting, stale-rejoin refusal, billing, shared regulations and the platform-admin path — **not** every signed-in screen (documents, reports, risk, chat, etc. are untested in a browser).
 
 ## Security model
 
 - Firestore rules are the only server-side authorization. They enforce organisation isolation, role boundaries, immutable ownership fields, and member-only notification delivery. Shared `regulations` are **read-only for every organisation user; only a platform admin** (a document you create in `platformAdmins/{uid}` in the Firebase console) may write them, and the "Sync Regulation Database" button is shown only to them.
-- Invitations: `invitations/{lowercased email}`; created by an org admin (≤ 15-day expiry); accepted only by a user whose **verified** email matches, after which the user may join exactly the invited org and role within 10 minutes; unusable once accepted or expired.
+- Invitations: `invitations/{organizationId}_{lowercased email}` (the id embeds the org, so one org can never touch another's invitations). Created by an org admin (≤ 15-day expiry). Accepting and joining happen in **one atomic Firestore commit** (REST `documents:commit` via `public/firestore-rest.js`, because the bundled SDK has no batch API) and the rules require both writes together, so an invitation is single-use, cannot be half-applied, and cannot be replayed by a removed member. The invitee's email must be verified.
 - The local backend binds to loopback, checks the `Host` header, refuses non-loopback or non-allow-listed `Origin`s on `/api`, caps upload size, and never serves files outside `public/`.
 - No AI key is embedded in the frontend. If a Gemini key was ever deployed, revoke it in Google AI Studio — removing it from code does not invalidate it.
-- Known trade-offs: any organisation member can resolve issues and create reports (documented product behaviour); organisation `plan`/`seats` are client-editable by admins because there is no billing backend.
+- Billing fields: organisation admins may only rename their organisation; `plan`/`seats` can be changed only by a platform admin (Admin Console → Set plan). New organisations always start as `starter`/5 seats. There is no payment provider.
+- Platform admin bootstrap and regulation seeding: see [`docs/PLATFORM_ADMIN.md`](./docs/PLATFORM_ADMIN.md). Deployment plan, backup and rollback: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
+- Known trade-offs: any organisation member can resolve issues and create reports (documented product behaviour); members of an organisation can send each other notifications.
 
 ## Deployment
 
-See the checklist produced with the latest security review (rules + hosting). In short: run the tests, run `npm run configure`, then `firebase deploy --only firestore:rules,hosting --project ordinex-862ba`. Deploy only from a tree where the Firebase config has been injected, otherwise the site will contain placeholders.
+See [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) (checklist, exact files and services, backup, rollback, smoke tests). In short: run the tests, run `npm run configure`, then `firebase deploy --only firestore:rules,hosting --project ordinex-862ba`. Deploy only from a tree where the Firebase config has been injected, otherwise the site will contain placeholders.
 
 ## Project structure
 
@@ -102,6 +105,7 @@ ord/
 │   └── vendor/                 # pdf.js, mammoth, docx (bundled)
 ├── local-ai/                   # local backend, tests, evaluation (see its README)
 ├── rules-test/                 # Firestore rules tests (emulator)
+├── docs/                       # PLATFORM_ADMIN.md, DEPLOYMENT.md
 ├── firestore.rules             # the entire backend's access control
 ├── firestore.indexes.json
 ├── functions-optional-blaze-upgrade/  # dormant Cloud Functions path + evidence-model.js and tests

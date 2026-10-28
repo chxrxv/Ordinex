@@ -63,8 +63,18 @@ service cloud.firestore {
       return request.auth.token.email.lower();
     }
 
+    // invitations/{organizationId}_{lower-cased invitee email}: the id embeds the org, so one org can never address
+    // (overwrite, list, consume) another org's invitations.
+    function invitationPath(orgId) {
+      return /databases/$(database)/documents/invitations/$(orgId + '_' + callerEmail());
+    }
+
+    function hasEmailClaim() {
+      return isSignedIn() && request.auth.token.email != null;
+    }
+
     function hasVerifiedEmail() {
-      return isSignedIn() && request.auth.token.email != null && request.auth.token.email_verified == true;
+      return hasEmailClaim() && request.auth.token.email_verified == true;
     }
 
     // Deny everything by default; every collection below explicitly opts in.
@@ -96,20 +106,23 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'organizationId'])
                     && ((request.resource.data.organizationId == resource.data.organizationId && validRole(request.resource.data.role))
                         || (request.resource.data.organizationId == null && request.resource.data.role == null));
-      // Joining an org by invitation: only a verified-email user with NO org, only to the org/role named in an
-      // invitation addressed to their own email that they accepted within the last 10 minutes (single use:
-      // the invitation is already 'accepted'; once joined, resource.data.organizationId != null blocks replay).
+      // Joining an org by invitation. Only a verified-email user with NO org, only to the org/role of a still-PENDING
+      // invitation addressed to their own email, and only in the SAME atomic commit that marks that invitation
+      // accepted (getAfter). Because the invitation must be 'pending' beforehand and is 'accepted' afterwards, it is
+      // single-use: a removed member cannot rejoin with it, and there is no time window to exploit.
       allow update: if hasVerifiedEmail() && request.auth.uid == uid
                     && resource.data.organizationId == null
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'organizationId'])
                     && request.resource.data.organizationId is string
                     && validRole(request.resource.data.role)
-                    && exists(/databases/$(database)/documents/invitations/$(callerEmail()))
-                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.status == 'accepted'
-                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.acceptedBy == request.auth.uid
-                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.organizationId == request.resource.data.organizationId
-                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.role == request.resource.data.role
-                    && get(/databases/$(database)/documents/invitations/$(callerEmail())).data.acceptedAt > request.time - duration.value(10, 'm');
+                    && exists(invitationPath(request.resource.data.organizationId))
+                    && get(invitationPath(request.resource.data.organizationId)).data.status == 'pending'
+                    && get(invitationPath(request.resource.data.organizationId)).data.email == callerEmail()
+                    && get(invitationPath(request.resource.data.organizationId)).data.organizationId == request.resource.data.organizationId
+                    && get(invitationPath(request.resource.data.organizationId)).data.role == request.resource.data.role
+                    && get(invitationPath(request.resource.data.organizationId)).data.expiresAt > request.time
+                    && getAfter(invitationPath(request.resource.data.organizationId)).data.status == 'accepted'
+                    && getAfter(invitationPath(request.resource.data.organizationId)).data.acceptedBy == request.auth.uid;
       allow update: if isPlatformAdmin();
       // Profile bootstrap only: the app creates it with role/org null (ensureUserProfile). Without this
       // a new user could create their own doc as 'admin' of ANY organization id.
@@ -124,8 +137,20 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /organizations/{orgId} {
       allow read: if isSameOrg(orgId) || isPlatformAdmin();
-      allow update: if isAdmin() && isSameOrg(orgId) && request.resource.data.createdBy == resource.data.createdBy; // createdBy feeds the bootstrap rule; never editable
-      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid; // org creation is a direct client write now (no Cloud Function) — see SETUP.md
+      // Org admins may rename their organisation and nothing else. `plan`/`seats` (billing) and `createdBy`
+      // (feeds the bootstrap rule) are never editable by tenant users.
+      allow update: if isAdmin() && isSameOrg(orgId)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+                    && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120;
+      // Trusted billing path: platform admins (platformAdmins/{uid}) set plan/seats. There is no payment backend;
+      // this is an operator action, not a purchase flow.
+      allow update: if isPlatformAdmin()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['plan', 'seats'])
+                    && request.resource.data.plan in ['starter', 'professional', 'enterprise']
+                    && request.resource.data.seats is int && request.resource.data.seats > 0 && request.resource.data.seats <= 1000;
+      // New organisations always start on the free tier; nobody can create one with a paid plan or extra seats.
+      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.plan == 'starter' && request.resource.data.seats == 5;
       allow delete: if false; // never allow client-side org deletion
     }
 
@@ -230,35 +255,43 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------
-    // INVITATIONS  (invitations/{lower-cased invitee email}) - one pending invitation per email.
-    // Flow: admin creates -> invitee (verified email) marks it accepted -> invitee sets own org/role (users rule).
-    // Org name is denormalised into the invitation because an invitee cannot read an org they are not in yet.
+    // INVITATIONS  (invitations/{organizationId}_{lower-cased invitee email})
+    // Flow: org admin creates (pending) -> the invitee, with a VERIFIED email, accepts AND joins in one atomic
+    // commit (see the users rule) -> the invitation is 'accepted' for good. Org name is denormalised because an
+    // invitee cannot read an org they are not in yet.
     // ---------------------------------------------------------------
     function validNewInvitation(inviteId) {
       let d = request.resource.data;
       return isAdmin() && isSameOrg(d.organizationId)
           && d.keys().hasOnly(['email', 'organizationId', 'organizationName', 'role', 'invitedBy', 'status', 'createdAt', 'expiresAt'])
-          && d.email is string && d.email == inviteId && inviteId == inviteId.lower()
+          && d.email is string && d.email == d.email.lower()
+          && inviteId == d.organizationId + '_' + d.email
           && validRole(d.role) && d.status == 'pending' && d.invitedBy == request.auth.uid
           && d.createdAt == request.time
           && d.expiresAt is timestamp && d.expiresAt > request.time && d.expiresAt <= request.time + duration.value(15, 'd');
     }
 
     match /invitations/{inviteId} {
-      allow get: if (isSignedIn() && request.auth.token.email != null && inviteId == callerEmail())
+      allow get: if (hasEmailClaim() && resource.data.email == callerEmail())
                  || (isAdmin() && isSameOrg(resource.data.organizationId));
-      allow list: if isAdmin() && isSameOrg(resource.data.organizationId);
+      // Invitee: only queries constrained to their own email. Admin: only queries constrained to their own org.
+      allow list: if (hasEmailClaim() && resource.data.email == callerEmail())
+                  || (isAdmin() && isSameOrg(resource.data.organizationId));
       allow create: if validNewInvitation(inviteId);
-      // Re-inviting: same org's admin, or any admin if the old one is finished/expired (never over another org's live invite).
-      allow update: if validNewInvitation(inviteId)
-                    && (isSameOrg(resource.data.organizationId) || resource.data.status != 'pending' || resource.data.expiresAt < request.time);
-      // Acceptance by the invitee: verified email, still pending and unexpired, touching only status/acceptedBy/acceptedAt.
-      allow update: if hasVerifiedEmail() && inviteId == callerEmail()
+      // Only the inviting org's admins can re-issue/extend; ids embed the org, so another org cannot reach this doc
+      // at all (expired or consumed included).
+      allow update: if validNewInvitation(inviteId) && isSameOrg(resource.data.organizationId);
+      // Acceptance by the invitee: verified email, still pending and unexpired, touching only
+      // status/acceptedBy/acceptedAt, AND in the same atomic commit the invitee joins exactly this org + role.
+      allow update: if hasVerifiedEmail() && resource.data.email == callerEmail()
                     && resource.data.status == 'pending' && resource.data.expiresAt > request.time
                     && request.resource.data.status == 'accepted'
                     && request.resource.data.acceptedBy == request.auth.uid
                     && request.resource.data.acceptedAt == request.time
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedBy', 'acceptedAt']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedBy', 'acceptedAt'])
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationId == null
+                    && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationId == resource.data.organizationId
+                    && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == resource.data.role;
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -319,7 +352,8 @@ service cloud.firestore {
     // TEAM / INVITES  (organizations/{orgId}/invites/{inviteId})
     // ---------------------------------------------------------------
     match /organizations/{orgId}/invites/{inviteId} {
-      allow read, create, delete: if isAdmin() && isSameOrg(orgId);
+      // Legacy location (invitations moved to the top-level `invitations` collection). Read/delete only, for cleanup.
+      allow read, delete: if isAdmin() && isSameOrg(orgId);
     }
   }
 }
