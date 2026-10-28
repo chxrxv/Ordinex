@@ -36851,7 +36851,7 @@ function renderRisk(){
       <div style="font-weight:700; font-size:14px;">Overall Risk Score</div>
       <div style="font-size:12px; color:var(--text-2);">Based on ${DB.riskCategories.length} categor${DB.riskCategories.length===1?'y':'ies'}</div>
     </div>
-    ${statCard('Confidence Score', DB.latestRisk && DB.latestRisk.confidence!=null ? DB.latestRisk.confidence+'%' : '—','AI confidence in the assessment','trending-up','var(--success)')}
+    ${statCard('Model-Estimated Confidence', DB.latestRisk && DB.latestRisk.confidence!=null ? DB.latestRisk.confidence+'%' : '—','Self-reported by the AI model; not calibrated or independently verified','trending-up','var(--accent-1)')}
     ${statCard('Financial Exposure','Not modeled','This assessment does not estimate financial exposure','dollar-sign','var(--text-3)')}
     ${statCard('High Risk Areas', DB.riskCategories.filter(r=>r.level==='High Risk').length,'Requiring immediate attention','alert-triangle','var(--warning)')}
   </div>
@@ -37173,12 +37173,12 @@ function generateReport(){
   };
   const reportSnapshot = buildEvidenceDrivenRegulatorySnapshot();
   const baseSummary = [
-    `${reportSnapshot.orgName} evidence-driven ${type.toLowerCase()} is being assembled using verified regulatory sources and current compliance evidence.`,
+    `${reportSnapshot.orgName} evidence-driven ${type.toLowerCase()} is being assembled from the sample data and documents currently loaded in this workspace (demo mode). It is not a verified regulatory finding.`,
     `Applicable laws reviewed: ${reportSnapshot.applicableRegulations.map((reg) => reg.short || reg.name).join(', ') || 'Assessment not yet populated'}.`,
     `Document evidence reviewed: ${reportSnapshot.documents.length} tracked artifacts. Open findings: ${reportSnapshot.openFindings.length}.`,
     `Primary risk drivers: ${reportSnapshot.riskDrivers.join('; ') || 'No material gaps identified in the current evidence set'}.`,
     `Priority actions: ${reportSnapshot.recommendations.join('; ') || 'Continue monitoring and document evidence for each material obligation'}.`,
-    `Confidence: ${reportSnapshot.confidence}% based on the organization profile, imported documents, and the mapped obligations in the current compliance evidence set.`
+    `Heuristic coverage indicator: ${reportSnapshot.confidence}% (a simple formula based on open findings and evidence status; it is not a verified or calibrated measure of accuracy).`
   ];
   const languageSummary = `Language context: document=${documentLanguage}; source=${sourceLanguage}; analysis=${analysisLanguage}; report=${reportLanguage}. Original legal text and source IDs are preserved; the report language changes only presentation and does not change the underlying risk score.`;
   const summaryLines = [...baseSummary, languageSummary];
@@ -37194,7 +37194,7 @@ function generateReport(){
   DB.reports.unshift(rep);
   closeModal(); render();
   toast('Evidence-driven report generation is compiling source-linked findings and obligations.','info','Generating report');
-  setTimeout(()=>{ rep.status='completed'; rep.summary = summaryLines.join('\n\n') + '\n\nVerified status: source-linked obligations and open findings are included in the report narrative, with any unverified or unsupported claims explicitly excluded.'; if(STATE.appPage==='reports') render(); toast('"'+title+'" is ready.','success','Report complete'); }, 3000);
+  setTimeout(()=>{ rep.status='completed'; rep.summary = summaryLines.join('\n\n') + '\n\nNote: this demo-mode summary was assembled from sample data. It is not verified against official regulatory sources, is not legal advice, and should be reviewed by a qualified person.'; if(STATE.appPage==='reports') render(); toast('"'+title+'" is ready.','success','Report complete'); }, 3000);
 }
 function viewReport(id){
   const r = DB.reports.find(x=>x.id===id);

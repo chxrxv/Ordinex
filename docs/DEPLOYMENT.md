@@ -23,6 +23,7 @@ Verify the list yourself before deploying: `Get-ChildItem public -Recurse -File 
 - Invitations are now org-scoped documents (`invitations/{orgId}_{email}`). **Pending invitations created by the old version live in `organizations/*/invites` and will no longer appear in the Team list — re-send them.** (Rules keep read/delete on that legacy location so admins can clean up.)
 - Organisation admins can rename their organisation but can no longer change plan/seats; only platform admins can (Admin Console).
 - Shared regulations can only be updated by platform admins (see `docs/PLATFORM_ADMIN.md`).
+- The Risk page tile is now "Model-Estimated Confidence" and says it is self-reported by the AI model and not calibrated or independently verified. Demo-mode report text no longer says "verified regulatory sources" or presents a formula as "Confidence".
 - Security audit fixes included: a removed founder can no longer re-promote themselves (bootstrap works only within 10 minutes of creating the organisation); organisation ids and the ids of documents, reports, risk records, issues and notifications are format-restricted (stored-XSS and invitation-id collision fixes); users with no organisation can no longer create organisation data or notify each other; the sidebar and Knowledge Base now carry accurate wording (no false "Gemini analysed" claim; sample regulations are labelled as unverified summaries).
 - Bug fixed along the way: the **Admin Console** menu item was added once at page load, before platform-admin status was known, so platform admins never saw it in live mode. It is now evaluated on every render.
 - No existing user, organisation, document, report or notification is modified. Existing organisations keep their current `plan`/`seats`.
@@ -52,6 +53,24 @@ The Firebase web `apiKey` is a public client identifier by design; it is not a s
 - [ ] The old Gemini key is revoked in Google AI Studio (removing it from the page does not invalidate it).
 - [ ] `firebase use` shows `ordinex-862ba` (your account also has `ordinex-50b01`; the command above names the project explicitly).
 - [ ] Working tree contains nothing you do not want published (`git status`, and the public file list above).
+
+## 3a. Production observations at audit time (recheck before each release)
+
+These are **point-in-time observations** from a read-only, aggregate-only scan of the production project on 2026-10-28 (counts only; no names, ids or personal data were recorded). They are not permanent facts: re-run the same checks in the Firebase console before every release and update this section.
+
+| Observation (2026-10-28) | Why it matters | What to recheck / do |
+|---|---|---|
+| 1 organisation has a name that looks like markup or script. It has 1 member and no documents. | The app escapes organisation names everywhere they are displayed (checked in both the old and new page), so it is not exploitable today. It may be a past test string. | Console -> `organizations`: find it by scanning names for `<` or `>`. Rename or leave it; do not open it in a context that renders raw HTML. |
+| 1 organisation was created by a user who now belongs to no organisation (it has 0 members and 3 documents). | The old rules allowed that user to re-adopt it; the new rule allows self-promotion only within 10 minutes of creating an organisation. The UI never offered a way back in, so day-to-day behaviour does not change, but the documents stay unreachable. | Decide if it should be restored. Only a platform admin (after bootstrap) or a manual console edit of that user's `organizationId`/`role` can do it. Never edit blindly. |
+| 2 organisations have no members (including the one above). | Harmless, but their documents are unreachable. | Decide whether to leave or clean up (manual, console only). |
+| `platformAdmins` is empty. | Admin Console, "Set plan" and "Sync Regulation Database" are unavailable to everyone until the first platform admin is created by the owner. | Follow `docs/PLATFORM_ADMIN.md` section 1 after the release, with a verified Authentication UID. |
+| `regulations` already holds 10 documents. | Deploying does not read or write data, so nothing is overwritten or duplicated. Sync is only needed to refresh them. | None before release. |
+| 1 legacy pending invitation exists in `organizations/*/invites`. | The new Team page reads the new `invitations` collection, so it will not appear. | Ask the admin to re-send it; the old document can be deleted by an organisation admin. |
+| 6 documents and 7 notifications have no `organizationId`. | They were already unreadable under the old rules; the new rules change nothing for them. | Optional manual clean-up. |
+| All existing document, report, risk, issue, notification, organisation and regulation ids match the new id rules; all existing role/plan/seat values are valid. | New rules apply to new writes; existing records stay readable. | Recheck counts of non-conforming ids (expected 0). |
+| The live Firestore ruleset was identical to the original rules at commit `e6bfd03`. | Rolling back the rules means re-publishing that text, which restores the audited vulnerabilities. | Take a fresh backup of the live rules immediately before deploying (section 3). |
+
+**Landing-page claims to review (owner decision, not changed by this release):** the marketing copy says "SOC 2 Type II certified", "50+ jurisdictions" and "SLA guarantee". This repository contains no evidence for those statements. Remove or substantiate them before relying on the site publicly.
 
 ## 4. Deploy
 
