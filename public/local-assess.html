@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ordinex — Local Assessment</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --text:#1b1f2a; --muted:#4b5565; --border:#d5d9e3; --accent:#3b4ccf; --ok:#0f6b3a; --warn:#8a5a00; --bad:#a61b1b; --focus:#1a73e8; --on-accent:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12151d; --card:#1b2030; --text:#eef0f6; --muted:#aab2c5; --border:#33394d; --accent:#8fa0ff; --ok:#5fd394; --warn:#f0c060; --bad:#ff8f8f; --focus:#7db3ff; --on-accent:#10131c; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, "Segoe UI", sans-serif; }
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  header, main { max-width:1100px; margin:0 auto; padding:16px; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  h1 { font-size:22px; margin:0; } h2 { font-size:18px; margin:0 0 8px; } h3 { font-size:15px; margin:0; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  label, legend { font-weight:600; display:block; margin-bottom:4px; }
+  fieldset { border:1px solid var(--border); border-radius:8px; margin:0; }
+  select, input[type=file] { max-width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--text); font:inherit; }
+  button, a.btn { font:inherit; padding:9px 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:var(--on-accent); cursor:pointer; text-decoration:none; display:inline-block; min-height:40px; }
+  button.secondary, a.btn.secondary { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.55; cursor:not-allowed; }
+  #health-status { padding:6px 12px; border-radius:999px; font-size:13px; border:1px solid var(--border); background:var(--card); }
+  #health-status[data-state=ok] { color:var(--ok); border-color:var(--ok); } #health-status[data-state=down] { color:var(--bad); border-color:var(--bad); }
+  .muted { color:var(--muted); font-size:13px; }
+  .alert { border:1px solid var(--bad); color:var(--bad); border-radius:8px; padding:10px 12px; margin:12px 0; background:transparent; overflow-wrap:anywhere; }
+  .notice { border:1px solid var(--warn); color:var(--warn); border-radius:8px; padding:10px 12px; margin:12px 0; overflow-wrap:anywhere; }
+  ul.files { list-style:none; padding:0; margin:8px 0; } ul.files li { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); }
+  .fname { overflow-wrap:anywhere; min-width:0; }
+  .finding { border:1px solid var(--border); border-radius:8px; padding:12px; margin:10px 0; overflow-wrap:anywhere; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:999px; border:1px solid currentColor; font-size:12px; font-weight:600; margin-right:6px; }
+  .Compliant { color:var(--ok); } .Non-compliant { color:var(--bad); } .Partially { color:var(--warn); } .Insufficient { color:var(--muted); }
+  blockquote { margin:6px 0; padding:6px 10px; border-left:3px solid var(--border); overflow-wrap:anywhere; }
+  .stats { display:flex; flex-wrap:wrap; gap:16px; } .stats div { min-width:120px; }
+  progress { width:100%; }
+  .hash { font-family:ui-monospace, Consolas, monospace; font-size:12px; overflow-wrap:anywhere; }
+  .table-wrap { overflow-x:auto; } table { border-collapse:collapse; width:100%; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); font-size:14px; }
+  .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Ordinex — Local Assessment</h1>
+    <div class="muted">Runs on this computer with a local model. Nothing is sent to a cloud AI service.</div>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <span id="health-status" role="status" aria-live="polite" data-state="checking">Checking local AI…</span>
+    <a class="btn secondary" href="/ordinex.html">Main app</a>
+  </div>
+</header>
+<main>
+  <section id="connect-panel" class="card" aria-labelledby="h-conn" hidden>
+    <h2 id="h-conn">Connect to Ordinex on your computer</h2>
+    <p>This page is served from a public website. <strong>The website itself cannot run AI.</strong> Analysis runs on <em>your</em> computer, using the Ordinex local backend and Ollama, so nothing you upload leaves your machine. To use it you need Ordinex installed and running locally:</p>
+    <ol>
+      <li>Install Ollama and run <code>ollama pull qwen3:4b</code>.</li>
+      <li>In the Ordinex folder run <code>npm run ai</code> (see <code>local-ai/README.md</code>). To allow this website to talk to it, start it with <code>ORDINEX_ALLOWED_ORIGINS=<span id="this-origin"></span></code> (PowerShell: <code>$env:ORDINEX_ALLOWED_ORIGINS="…"; npm run ai</code>).</li>
+      <li>Click Connect. Only loopback addresses (127.0.0.1 / localhost) are accepted.</li>
+    </ol>
+    <p class="muted">The simplest option is to open <code>http://127.0.0.1:8787/local-assess.html</code> on your computer instead; that needs no extra setting.</p>
+    <div class="row">
+      <div><label for="backend-url">Local backend address</label><input id="backend-url" type="text" value="http://127.0.0.1:8787" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font:inherit;min-width:260px;max-width:100%"></div>
+      <button id="connect-btn" type="button">Connect</button>
+    </div>
+  </section>
+  <div id="dataset-notice" class="notice" hidden></div>
+
+  <section class="card" aria-labelledby="h-new">
+    <h2 id="h-new">New assessment</h2>
+    <form id="form" novalidate>
+      <div class="row">
+        <div>
+          <label for="file-input">Documents (PDF, DOCX or TXT)</label>
+          <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md">
+        </div>
+        <div>
+          <label for="jurisdiction">Jurisdiction</label>
+          <select id="jurisdiction">
+            <option value="EU">EU / EEA (GDPR)</option>
+            <option value="IN">India (DPDP Act)</option>
+            <option value="US">United States (HIPAA)</option>
+          </select>
+        </div>
+        <fieldset>
+          <legend>Data processed</legend>
+          <label style="font-weight:400"><input type="checkbox" name="dt" value="personal" checked> Personal data</label>
+          <label style="font-weight:400"><input type="checkbox" name="dt" value="health"> Health data</label>
+        </fieldset>
+      </div>
+      <ul id="file-list" class="files" aria-label="Selected files"></ul>
+      <div class="row" style="margin-top:8px;">
+        <button id="analyze-btn" type="submit">Analyze</button>
+        <button id="cancel-btn" type="button" class="secondary" hidden>Cancel analysis</button>
+      </div>
+    </form>
+    <div id="progress-wrap" hidden>
+      <p id="progress-text" role="status" aria-live="polite"></p>
+      <progress id="progress" max="100" value="0" aria-label="Analysis progress"></progress>
+    </div>
+    <div id="error" class="alert" role="alert" hidden></div>
+    <div id="doc-messages"></div>
+  </section>
+
+  <section id="results" class="card" aria-labelledby="h-res" hidden tabindex="-1">
+    <h2 id="h-res">Assessment results</h2>
+    <div id="summary"></div>
+    <div id="downloads" class="row" style="margin:12px 0;"></div>
+    <h3>Findings</h3>
+    <div id="findings"></div>
+    <h3 style="margin-top:16px;">Remediation (recommendations, not completed work)</h3>
+    <div id="remediations"></div>
+    <h3 style="margin-top:16px;">Limitations</h3>
+    <ul id="limitations"></ul>
+  </section>
+
+  <section class="card" aria-labelledby="h-hist">
+    <h2 id="h-hist">Saved assessments <span class="muted">(stored locally by the backend)</span></h2>
+    <div id="history-msg" class="muted">Loading…</div>
+    <div class="table-wrap"><table id="history" hidden><thead><tr><th>ID</th><th>Date</th><th>Risk</th><th>Model</th><th><span class="visually-hidden">Open</span></th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+
+<script>
+'use strict';
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var files = [];            // File objects currently selected
+  var busy = false;
+  var runToken = 0;          // increments per run; stale async work checks it
+  var current = null;        // { jobId, ctrl }
+  var MAX_MB = 25;
+  var KEY = 'ordinex.localBackend';
+  var LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\])$/;
+  var onLoopback = LOOPBACK.test(location.hostname);
+  var BASE = '';             // '' = same origin (page served by the local backend)
+  function normalizeLoopback(u) {
+    try { var x = new URL(u); if ((x.protocol === 'http:' || x.protocol === 'https:') && LOOPBACK.test(x.hostname)) return x.origin; } catch (e) { /* invalid */ }
+    return null;
+  }
+  if (!onLoopback) {
+    BASE = null;
+    try { BASE = normalizeLoopback(localStorage.getItem(KEY) || '') || null; } catch (e) { BASE = null; }
+  }
+
+  function el(tag, props, children) {
+    var n = document.createElement(tag);
+    Object.keys(props || {}).forEach(function (k) {
+      if (k === 'text') n.textContent = props[k]; else if (k === 'class') n.className = props[k]; else n.setAttribute(k, props[k]);
+    });
+    (children || []).forEach(function (c) { if (c) n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return n;
+  }
+  function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+  function showError(msg) { var e = $('error'); e.textContent = msg; e.hidden = !msg; }
+  function safeUrl(u) { try { var x = new URL(u); return (x.protocol === 'https:' || x.protocol === 'http:') ? x.href : null; } catch (e) { return null; } }
+  function statusClass(s) { return s === 'Compliant' ? 'Compliant' : s === 'Non-compliant' ? 'Non-compliant' : s === 'Partially compliant' ? 'Partially' : 'Insufficient'; }
+  function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+
+  async function api(path, opts) {
+    var res;
+    if (BASE === null) { var nc = new Error('Not connected to a local Ordinex backend. Use the Connect panel above.'); nc.network = true; throw nc; }
+    try { res = await fetch(BASE + path, opts); }
+    catch (e) { var err = new Error('Cannot reach the Ordinex backend. Is it running? Start it with "npm run ai" and reload.'); err.network = true; throw err; }
+    var body = null, text = '';
+    try { text = await res.text(); body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+    if (!res.ok) { var er = new Error((body && (body.error || body.message)) || ('Request failed (HTTP ' + res.status + ').')); er.status = res.status; er.code = body && body.code; throw er; }
+    if (body === null) { var bad = new Error('The backend returned an unreadable response.'); bad.status = res.status; throw bad; }
+    return body;
+  }
+
+  // ---------------------------------------------------------------- health
+  async function refreshHealth() {
+    var h = $('health-status');
+    try {
+      var j = await api('/api/health');
+      var ai = j.ai || {};
+      if (j.aiAvailable) {
+        h.dataset.state = 'ok';
+        h.textContent = 'Local AI ready: ' + ai.model + (ai.loaded ? ' (' + ai.loaded.processor + ')' : ' (idle)');
+      } else {
+        h.dataset.state = 'down';
+        h.textContent = 'AI analysis unavailable — ' + (!ai.reachable ? 'Ollama is not running (start Ollama, then reload)' : 'model ' + ai.model + ' is not installed (ollama pull ' + ai.model + ')');
+      }
+      var d = $('dataset-notice');
+      d.hidden = false; d.textContent = 'Regulatory dataset: ' + j.dataset.provisionCount + ' provisions. ' + j.dataset.coverage + ' Last verified: ' + (j.dataset.lastVerified || 'never — unverified') + '.';
+      return !!j.aiAvailable;
+    } catch (e) {
+      h.dataset.state = 'down'; h.textContent = BASE === null ? 'Not connected — this website cannot run AI by itself' : 'Ordinex backend not reachable (run "npm run ai")'; return false;
+    }
+  }
+
+  // ----------------------------------------------------------------- files
+  function renderFiles() {
+    var ul = $('file-list'); clear(ul);
+    files.forEach(function (f, i) {
+      var li = el('li', {}, [el('span', { class: 'fname', text: f.name + ' (' + fmtBytes(f.size) + ')' })]);
+      var b = el('button', { type: 'button', class: 'secondary', 'aria-label': 'Remove ' + f.name, text: 'Remove' });
+      b.addEventListener('click', function () { files.splice(i, 1); renderFiles(); $('file-input').value = ''; });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+  $('file-input').addEventListener('change', function (ev) {
+    files = Array.prototype.slice.call(ev.target.files || []); renderFiles(); showError('');
+  });
+
+  // ------------------------------------------------------------- analysis
+  function setBusy(b) {
+    busy = b; $('analyze-btn').disabled = b; $('file-input').disabled = b; $('cancel-btn').hidden = !b; $('progress-wrap').hidden = !b;
+    $('analyze-btn').textContent = b ? 'Analyzing…' : 'Analyze';
+  }
+  function clearResults() { $('results').hidden = true; clear($('summary')); clear($('findings')); clear($('remediations')); clear($('limitations')); clear($('downloads')); }
+
+  async function uploadAll(token) {
+    var ids = [], msgs = $('doc-messages');
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (f.size === 0) { msgs.appendChild(el('div', { class: 'alert', text: f.name + ': the file is empty.' })); continue; }
+      if (f.size > MAX_MB * 1048576) { msgs.appendChild(el('div', { class: 'alert', text: f.name + ': larger than ' + MAX_MB + ' MB limit.' })); continue; }
+      $('progress-text').textContent = 'Uploading ' + (i + 1) + ' of ' + files.length + '…';
+      try {
+        var d = await api('/api/documents', { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name) }, body: f });
+        if (token !== runToken) return null;
+        ids.push(d.id);
+        if (d.reviewRequired) msgs.appendChild(el('div', { class: 'notice', text: f.name + ': ' + d.reviewReason }));
+      } catch (e) {
+        if (e.network) throw e;
+        msgs.appendChild(el('div', { class: 'alert', text: f.name + ': ' + e.message }));
+      }
+    }
+    return ids;
+  }
+
+  async function runAnalysis() {
+    if (busy) return;
+    showError(''); clearResults(); clear($('doc-messages'));
+    if (!files.length) { showError('Choose at least one document first.'); $('file-input').focus(); return; }
+    var types = Array.prototype.map.call(document.querySelectorAll('input[name=dt]:checked'), function (c) { return c.value; });
+    if (!types.length) { showError('Select at least one data type.'); return; }
+    var token = ++runToken; setBusy(true);
+    current = { jobId: null, cancelled: false };
+    try {
+      if (!(await refreshHealth())) throw new Error('Local AI is not available. Start Ollama and make sure the model is installed, then retry.');
+      var ids = await uploadAll(token);
+      if (token !== runToken) return;
+      if (current.cancelled) { showError('Analysis cancelled before it started. No results were saved.'); return; }
+      if (!ids.length) throw new Error('None of the selected documents could be read, so nothing was analyzed. See the messages above.');
+      $('progress-text').textContent = 'Starting analysis…';
+      var start = await api('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: { jurisdictions: [$('jurisdiction').value], dataTypes: types, dataSubjects: 0 }, documentIds: ids }) });
+      current.jobId = start.jobId;
+      if (current.cancelled) { try { await api('/api/jobs/' + start.jobId + '/cancel', { method: 'POST' }); } catch (e) { /* the poll below reports the outcome */ } }
+      var misses = 0, job;
+      for (;;) {
+        await new Promise(function (r) { setTimeout(r, 1500); });
+        if (token !== runToken) return;
+        try { job = await api('/api/jobs/' + start.jobId); misses = 0; }
+        catch (e) {
+          if (e.status === 404) throw new Error('The backend lost this analysis (it was probably restarted). Nothing was saved — please run it again.');
+          if (++misses >= 5) throw new Error('Lost contact with the backend while the analysis was running. Check that it is still running, then retry.');
+          continue;
+        }
+        var p = job.progress || {};
+        $('progress-text').textContent = job.status === 'running' ? (p.stage === 'analysing' ? 'Analysing ' + (p.current || '') + ' (' + p.done + ' of ' + p.total + ')…' : 'Working…') : '';
+        $('progress').value = p.total ? Math.round(100 * p.done / p.total) : 0;
+        if (job.status !== 'running') break;
+      }
+      if (job.status === 'cancelled') { showError('Analysis cancelled. No results were saved.'); return; }
+      if (job.status !== 'done') throw new Error((job.error && job.error.message) || 'The analysis failed.');
+      await openAssessment(job.assessmentId, token);
+      loadHistory();
+    } catch (e) {
+      if (token === runToken) { clearResults(); showError(e.message); }
+    } finally {
+      if (token === runToken) { setBusy(false); current = null; }
+    }
+  }
+  $('form').addEventListener('submit', function (ev) { ev.preventDefault(); runAnalysis(); });
+  $('cancel-btn').addEventListener('click', async function () {
+    if (current) current.cancelled = true;
+    if (current && current.jobId) { try { await api('/api/jobs/' + current.jobId + '/cancel', { method: 'POST' }); } catch (e) { showError(e.message); } }
+  });
+
+  // -------------------------------------------------------------- results
+  async function openAssessment(id, token) {
+    var snap = await api('/api/assessments/' + encodeURIComponent(id));
+    if (token !== undefined && token !== runToken) return;
+    renderSnapshot(snap);
+    history.replaceState(null, '', '#' + id);
+  }
+  function renderSnapshot(s) {
+    clearResults();
+    var sum = $('summary');
+    var counts = el('div', { class: 'stats' }, Object.keys(s.counts).map(function (k) { return el('div', {}, [el('strong', { text: String(s.counts[k]) }), el('div', { class: 'muted', text: k })]); }));
+    sum.appendChild(el('p', { text: 'Assessment ' + s.id + ' — ' + new Date(s.createdAt).toLocaleString() }));
+    sum.appendChild(el('p', { id: 'overall-risk', text: 'Overall risk: ' + (s.riskSummary.overall == null ? 'not assessed' : s.riskSummary.overall + ' / 100 (' + s.riskSummary.level + ')') }));
+    sum.appendChild(counts);
+    sum.appendChild(el('p', { class: 'muted', text: 'Model: ' + s.model.name + ' — ' + s.model.location + '; processor: ' + s.model.processor + '; ' + s.model.stats.calls + ' model calls.' }));
+    sum.appendChild(el('p', { class: 'muted', text: 'Traceability check: ' + (s.traceability.valid ? 'valid' : 'ISSUES FOUND (' + s.traceability.issues.length + ')') + '. Dataset: ' + s.dataset.coverage }));
+    sum.appendChild(el('p', { class: 'hash', text: 'Snapshot sha256: ' + s.hash }));
+    if (s.dataset.lastVerified === null) sum.appendChild(el('div', { class: 'notice', text: 'The regulatory dataset is unverified. Statuses are model-assisted and are not legal conclusions.' }));
+    s.notApplicable.forEach(function (n) { sum.appendChild(el('p', { class: 'muted', text: 'Not applicable — ' + n.short + ': ' + n.reason })); });
+
+    ['md', 'html', 'json'].forEach(function (f) {
+      var base = BASE + '/api/assessments/' + encodeURIComponent(s.id) + '/report?format=' + f;
+      var wrap = el('span', {}, [
+        el('a', { class: 'btn', href: base + '&download=1', download: 'ordinex-' + s.id + '.' + f, text: 'Download ' + ({ md: 'Markdown', html: 'HTML', json: 'JSON' })[f] })
+      ]);
+      $('downloads').appendChild(wrap);
+    });
+    $('downloads').appendChild(el('a', { class: 'btn secondary', href: BASE + '/api/assessments/' + encodeURIComponent(s.id) + '/report?format=html', target: '_blank', rel: 'noopener noreferrer', text: 'View HTML report' }));
+
+    s.findings.forEach(function (f) {
+      var r = s.risks.filter(function (x) { return x.findingId === f.id; })[0];
+      var src = s.sources.filter(function (x) { return x.id === f.sourceId; })[0] || {};
+      var box = el('article', { class: 'finding', 'data-finding': f.provisionId }, [
+        el('h3', { text: f.title }),
+        el('p', {}, [
+          el('span', { class: 'tag ' + statusClass(f.status), text: f.status }),
+          f.reviewRequired ? el('span', { class: 'tag', text: 'Human review required' }) : null,
+          el('span', { text: ' Risk ' + r.score + ' (' + r.level + ')' + (r.uncertain ? ' — evidence gap, not a confirmed violation' : '') })
+        ]),
+        el('p', { text: f.reasoning })
+      ]);
+      if (f.evidence.length) f.evidence.forEach(function (e) {
+        box.appendChild(el('blockquote', {}, [el('div', { class: 'muted', text: e.docName + ' · ' + e.ref }), el('div', { text: '“' + e.quote + '”' })]));
+      }); else box.appendChild(el('p', { class: 'muted', text: 'No verified evidence passage.' }));
+      if (f.reviewReasons.length) box.appendChild(el('p', { class: 'muted', text: 'Review reasons: ' + f.reviewReasons.join(' | ') }));
+      if (f.flags.length) box.appendChild(el('p', { class: 'muted', text: 'Validation flags: ' + f.flags.join(', ') }));
+      var link = safeUrl(src.sourceUrl);
+      var prov = s.provisions.filter(function (x) { return x.id === f.provisionId; })[0] || {};
+      var chk = src.sourceCheck || {};
+      var label = chk.status === 'verified-official' ? 'Source checked against the official text (' + chk.checkedOn + ', ' + chk.officialTextVersion + ')' : 'Source UNVERIFIED (' + (chk.reason || 'not checked') + ')';
+      box.appendChild(el('p', { class: 'muted' }, ['Source: ' + (src.name || f.sourceId) + ' — ', link ? el('a', { href: link, target: '_blank', rel: 'noopener noreferrer', text: link }) : 'no valid URL']));
+      box.appendChild(el('p', { class: 'muted', 'data-source-status': chk.status || 'unverified', text: label + '. Provision wording is a ' + (prov.textBasis || 'paraphrase') + ', not official text. Human review required.' }));
+      $('findings').appendChild(box);
+    });
+    if (!s.remediations.length) $('remediations').appendChild(el('p', { class: 'muted', text: 'No open remediation items.' }));
+    s.remediations.forEach(function (m) {
+      $('remediations').appendChild(el('article', { class: 'finding' }, [
+        el('h3', { text: m.gap }),
+        el('p', { text: m.action }),
+        el('p', { class: 'muted', text: 'Basis: ' + m.regulatoryBasis + ' · Priority ' + m.priority + ' · Suggested owner: ' + m.suggestedOwnerRole + ' · Suggested timeline: ' + m.suggestedTimeline + ' (' + m.timelineNote + ') · Statutory deadline: ' + (m.statutoryDeadline || 'none recorded') }),
+        el('p', { class: 'muted', text: 'Remaining uncertainty: ' + (m.remainingUncertainty || 'not stated') })
+      ]));
+    });
+    s.limitations.forEach(function (l) { $('limitations').appendChild(el('li', { text: l })); });
+    $('results').hidden = false; $('results').focus();
+  }
+
+  // -------------------------------------------------------------- history
+  async function loadHistory() {
+    var msg = $('history-msg'), tbl = $('history'), body = tbl.querySelector('tbody'); clear(body);
+    try {
+      var list = await api('/api/assessments');
+      if (!list.length) { msg.textContent = 'No saved assessments yet.'; tbl.hidden = true; return; }
+      msg.textContent = list.length + ' saved.'; tbl.hidden = false;
+      list.forEach(function (a) {
+        var open = el('button', { type: 'button', class: 'secondary', 'aria-label': 'Open assessment ' + a.id, text: 'Open' });
+        open.addEventListener('click', function () { clearResults(); showError(''); openAssessment(a.id).catch(function (e) { showError(e.message); }); });
+        body.appendChild(el('tr', {}, [el('td', { class: 'hash', text: a.id }), el('td', { text: new Date(a.createdAt).toLocaleString() }), el('td', { text: a.riskSummary && a.riskSummary.overall != null ? a.riskSummary.overall + ' (' + a.riskSummary.level + ')' : 'n/a' }), el('td', { text: a.model }), el('td', {}, [open])]));
+      });
+    } catch (e) { msg.textContent = 'Could not load saved assessments: ' + e.message; tbl.hidden = true; }
+  }
+
+  function showConnect() {
+    var show = !onLoopback;
+    $('connect-panel').hidden = !show; if (show) { $('this-origin').textContent = location.origin; if (BASE) $('backend-url').value = BASE; }
+  }
+  $('connect-btn').addEventListener('click', async function () {
+    var u = normalizeLoopback($('backend-url').value.trim());
+    if (!u) { showError('Only loopback addresses are accepted (for example http://127.0.0.1:8787).'); return; }
+    var prev = BASE; BASE = u; showError('');
+    try {
+      var r = await fetch(u + '/api/health'); var j = await r.json();
+      if (!r.ok || j.backend !== 'ok') throw new Error('That address did not answer like an Ordinex backend.');
+      try { localStorage.setItem(KEY, u); } catch (e) { /* storage unavailable: stays connected for this page view */ }
+      refreshHealth(); loadHistory();
+    } catch (e) {
+      BASE = prev;
+      showError('Could not connect to ' + u + '. Is the backend running, and was it started with ORDINEX_ALLOWED_ORIGINS=' + location.origin + '? (' + (e.message || 'network error') + ')');
+    }
+  });
+  showConnect();
+  refreshHealth(); setInterval(function () { if (!busy) refreshHealth(); }, 20000);
+  if (BASE !== null) loadHistory(); else { $('history-msg').textContent = 'Connect to a local backend to see saved assessments.'; }
+  var m = /^#(asm-[0-9a-f]{10})$/.exec(location.hash);
+  if (m && BASE !== null) openAssessment(m[1]).catch(function (e) { showError(e.message); });
+})();
+</script>
+</body>
+</html>

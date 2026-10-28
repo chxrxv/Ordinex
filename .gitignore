@@ -5,3 +5,12 @@ firebase-debug.*.log
 *.local
 .env
 .env.resolved.sh
+
+local-ai/node_modules/
+local-ai/data/
+local-ai/.env
+local-ai/eval/results/
+*.gguf
+firestore-debug.log
+*-debug.log
+local-ai/ui-test/fixtures/tool.exe

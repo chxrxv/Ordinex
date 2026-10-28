@@ -5,6 +5,15 @@
   "scripts": {
     "configure": "node scripts/configure.js",
     "deploy": "bash scripts/deploy.sh",
-    "emulate": "firebase emulators:start"
+    "emulate": "firebase emulators:start",
+    "ai": "node local-ai/src/server.js",
+    "ai:test": "node --test local-ai/test/core.test.js",
+    "ai:eval": "node local-ai/eval/run-eval.js",
+    "ai:doctor": "node local-ai/src/doctor.js",
+    "ai:ui:test": "node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=fast",
+    "ai:ui:test:headed": "node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=fast --headed",
+    "ai:ui:test:e2e": "node local-ai/node_modules/@playwright/test/cli.js test --config local-ai/playwright.config.js --project=e2e",
+    "ai:dataset": "node local-ai/src/validate-dataset.js",
+    "rules:test": "firebase emulators:exec --only firestore --project demo-ordinex \"node --test rules-test/rules.test.js\""
   }
 }

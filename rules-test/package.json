@@ -1,0 +1,2 @@
+{ "name": "ordinex-rules-test", "private": true, "scripts": { "test": "node --test rules.test.js" },
+  "devDependencies": { "@firebase/rules-unit-testing": "^4.0.1", "firebase": "^11.0.0" } }

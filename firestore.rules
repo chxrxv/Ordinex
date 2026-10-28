@@ -78,7 +78,11 @@ service cloud.firestore {
                     && get(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)).data.createdBy == request.auth.uid;
       allow update: if isAdmin() && isSameOrg(resource.data.organizationId); // admins can manage roles
       allow update: if isPlatformAdmin();
-      allow create: if isSignedIn() && request.auth.uid == uid;
+      // Profile bootstrap only: the app creates it with role/org null (ensureUserProfile). Without this
+      // a new user could create their own doc as 'admin' of ANY organization id.
+      allow create: if isSignedIn() && request.auth.uid == uid
+                    && request.resource.data.role == null
+                    && request.resource.data.organizationId == null;
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -104,7 +108,9 @@ service cloud.firestore {
       // shown to every member and reanalyzes every document in the org,
       // not just ones that member uploaded — this has to allow that, same
       // reasoning as complianceReports/riskAssessments below.
-      allow update: if isSameOrg(resource.data.organizationId);
+      allow update: if isSameOrg(resource.data.organizationId)
+                    && request.resource.data.organizationId == resource.data.organizationId   // cannot move a document to another org
+                    && request.resource.data.uploadedBy == resource.data.uploadedBy;
       allow delete: if isAdminOrComplianceOfficer() && isSameOrg(resource.data.organizationId);
     }
 
@@ -118,10 +124,10 @@ service cloud.firestore {
       // in the old Cloud Functions build those wrote via the Admin SDK
       // (bypassing this rule entirely) — this now has to actually match
       // that real behavior since there's no privileged backend left.
-      allow create, update: if isSignedIn() && (
-        request.resource.data.organizationId == orgIdOfCaller() ||
-        isSameOrg(resource.data.organizationId)
-      );
+      // create and update are separate: the old combined rule let anyone overwrite another org's
+      // report by writing their own organizationId into it.
+      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -140,7 +146,7 @@ service cloud.firestore {
       // reasoning as complianceReports above. This also loosens the manual
       // "Mark Resolved" button from admin/compliance_officer/analyst-only
       // to any org member, a real (documented) trade-off of this build.
-      allow update: if isSameOrg(resource.data.organizationId);
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
       allow delete: if false;
     }
 
@@ -151,10 +157,8 @@ service cloud.firestore {
       allow read: if isSameOrg(resource.data.organizationId);
       // Same reasoning as complianceReports: "New Assessment" is shown to
       // every org member in the UI and used to run via Admin-SDK bypass.
-      allow create, update: if isSignedIn() && (
-        request.resource.data.organizationId == orgIdOfCaller() ||
-        isSameOrg(resource.data.organizationId)
-      );
+      allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller();
+      allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId;
       allow delete: if isAdmin() && isSameOrg(resource.data.organizationId);
     }
 
@@ -171,7 +175,10 @@ service cloud.firestore {
     // NOTIFICATIONS  (notifications/{notifId})
     // ---------------------------------------------------------------
     match /notifications/{notifId} {
-      allow read, update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.organizationId == resource.data.organizationId;
       allow create: if isSignedIn() && request.resource.data.organizationId == orgIdOfCaller(); // client fans these out now instead of a Cloud Function trigger
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
@@ -180,7 +187,8 @@ service cloud.firestore {
     // CHAT CONVERSATIONS  (chatConversations/{convId}/messages/{msgId})
     // ---------------------------------------------------------------
     match /chatConversations/{convId} {
-      allow read, update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
 
       match /messages/{msgId} {

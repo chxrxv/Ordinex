@@ -1,0 +1,351 @@
+{
+  "dataset": {
+    "name": "Ordinex seed regulatory dataset",
+    "version": "0.1.0",
+    "coverage": "SMALL SEED SET: 5 EU GDPR articles, 3 India DPDP Act 2023 sections, 3 US HIPAA provisions. This is NOT a complete or live regulatory feed.",
+    "lastVerified": null,
+    "verificationStatus": "PARTIAL - HIPAA entries were checked against the official eCFR on 2026-10-29 (existence, heading, key operative elements only); GDPR and DPDP entries are UNVERIFIED (official sources could not be retrieved). All 'obligation' fields are paraphrases, not official wording. Not legal advice; not reviewed by a lawyer.",
+    "updateMechanism": "Edit regdata/regulations.json using the same schema and restart the server. Set lastVerified per regulation only after checking the official text.",
+    "verificationNotes": "lastVerified stays null until EVERY regulation is verified. See each regulation's sourceCheck."
+  },
+  "regulations": [
+    {
+      "id": "reg-gdpr",
+      "name": "General Data Protection Regulation (EU) 2016/679",
+      "short": "GDPR",
+      "jurisdictions": [
+        "EU",
+        "EEA"
+      ],
+      "authority": "European Union",
+      "sourceType": "official",
+      "sourceUrl": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "penaltyExposure": 5,
+      "appliesWhen": {
+        "dataTypes": [
+          "personal"
+        ]
+      },
+      "provisions": [
+        {
+          "id": "gdpr-art-5-1-e",
+          "ref": "Art. 5(1)(e)",
+          "title": "Storage limitation",
+          "type": "explicit-requirement",
+          "severity": 3,
+          "obligation": "Personal data must be kept in a form permitting identification for no longer than necessary for the purposes of processing.",
+          "evidenceTerms": [
+            "retention",
+            "retain",
+            "delete",
+            "deletion",
+            "erase",
+            "storage period",
+            "purge"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "verification": [
+            "Retention schedule exists and covers each data category",
+            "Deletion job or procedure evidenced in logs"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "gdpr-art-30",
+          "ref": "Art. 30",
+          "title": "Records of processing activities",
+          "type": "explicit-requirement",
+          "severity": 3,
+          "obligation": "Controllers must maintain a record of processing activities including purposes, categories of data subjects and data, recipients, transfers, retention periods and a general description of security measures.",
+          "evidenceTerms": [
+            "record of processing",
+            "processing activities",
+            "ropa",
+            "data inventory",
+            "data register",
+            "processing register"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "verification": [
+            "Register covers all processing activities",
+            "Register reviewed periodically (internal target)"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "gdpr-art-32",
+          "ref": "Art. 32",
+          "title": "Security of processing",
+          "type": "explicit-requirement",
+          "severity": 4,
+          "obligation": "Controllers and processors must implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk, such as pseudonymisation and encryption, ongoing confidentiality, integrity, availability and resilience, ability to restore availability after an incident, and regular testing of effectiveness.",
+          "evidenceTerms": [
+            "encryption",
+            "encrypted",
+            "access control",
+            "security measures",
+            "backup",
+            "penetration test",
+            "multi-factor",
+            "mfa",
+            "confidentiality"
+          ],
+          "ownerRole": "CISO",
+          "verification": [
+            "Encryption at rest and in transit evidenced",
+            "Access control review and security testing records exist"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "gdpr-art-33",
+          "ref": "Art. 33",
+          "title": "Notification of a personal data breach to the supervisory authority",
+          "type": "explicit-requirement",
+          "severity": 5,
+          "obligation": "A controller must notify the competent supervisory authority of a personal data breach without undue delay and, where feasible, not later than 72 hours after becoming aware of it, unless the breach is unlikely to result in a risk to individuals. Processors must notify the controller without undue delay.",
+          "evidenceTerms": [
+            "breach",
+            "72 hours",
+            "supervisory authority",
+            "incident response",
+            "notify",
+            "notification",
+            "data incident"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "statutoryDeadline": "72 hours from awareness (Art. 33(1))",
+          "verification": [
+            "Breach response procedure names the 72-hour notification step",
+            "Tabletop exercise evidenced"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "gdpr-art-35",
+          "ref": "Art. 35",
+          "title": "Data protection impact assessment",
+          "type": "explicit-requirement",
+          "severity": 3,
+          "obligation": "Where processing is likely to result in a high risk to individuals (including large-scale processing of special categories of data), the controller must carry out an assessment of the impact of the envisaged processing before the processing.",
+          "evidenceTerms": [
+            "impact assessment",
+            "dpia",
+            "high risk",
+            "risk assessment",
+            "special categories"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "verification": [
+            "DPIA completed and signed off for each high-risk processing activity"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        }
+      ],
+      "sourceCheck": {
+        "status": "unverified",
+        "checkedOn": "2026-10-29",
+        "method": "Attempted fetch of eur-lex.europa.eu returned empty content; no comparison with the official text was possible",
+        "reason": "Official source could not be retrieved",
+        "reuseStatus": "not verified (EUR-Lex legal text is generally reusable under EU reuse rules, but this was not checked)"
+      }
+    },
+    {
+      "id": "reg-dpdp",
+      "name": "Digital Personal Data Protection Act, 2023 (India)",
+      "short": "DPDP Act",
+      "jurisdictions": [
+        "IN",
+        "India"
+      ],
+      "authority": "Government of India",
+      "sourceType": "official",
+      "sourceUrl": "https://www.meity.gov.in/data-protection-framework",
+      "penaltyExposure": 5,
+      "appliesWhen": {
+        "dataTypes": [
+          "personal"
+        ]
+      },
+      "provisions": [
+        {
+          "id": "dpdp-s-6",
+          "ref": "Section 6",
+          "title": "Consent",
+          "type": "explicit-requirement",
+          "severity": 4,
+          "obligation": "Consent of the Data Principal must be free, specific, informed, unconditional and unambiguous with a clear affirmative action, limited to the specified purpose, and must be capable of being withdrawn as easily as it was given.",
+          "evidenceTerms": [
+            "consent",
+            "withdraw",
+            "opt-in",
+            "notice",
+            "purpose",
+            "data principal"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "verification": [
+            "Consent notice reviewed for purpose and withdrawal mechanism",
+            "Consent records retained"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "dpdp-s-8-5",
+          "ref": "Section 8(5)",
+          "title": "Reasonable security safeguards",
+          "type": "explicit-requirement",
+          "severity": 4,
+          "obligation": "A Data Fiduciary must protect personal data in its possession or under its control by taking reasonable security safeguards to prevent personal data breach.",
+          "evidenceTerms": [
+            "security",
+            "safeguards",
+            "encryption",
+            "access control",
+            "backup",
+            "monitoring",
+            "confidentiality"
+          ],
+          "ownerRole": "CISO",
+          "verification": [
+            "Security controls inventory mapped to personal-data systems"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "dpdp-s-8-6",
+          "ref": "Section 8(6)",
+          "title": "Intimation of personal data breach",
+          "type": "explicit-requirement",
+          "severity": 5,
+          "obligation": "In the event of a personal data breach, the Data Fiduciary must give the Data Protection Board and each affected Data Principal intimation of the breach in the form and manner prescribed.",
+          "evidenceTerms": [
+            "breach",
+            "intimation",
+            "notify",
+            "notification",
+            "affected individuals",
+            "incident response",
+            "data protection board"
+          ],
+          "ownerRole": "Data Protection Officer",
+          "statutoryDeadline": "Form and manner prescribed by Rules - confirm in the current DPDP Rules",
+          "verification": [
+            "Breach procedure covers both Board and data principal notification"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        }
+      ],
+      "sourceCheck": {
+        "status": "unverified",
+        "checkedOn": "2026-10-29",
+        "method": "Attempted fetch of meity.gov.in returned HTTP 403; no comparison with the official text was possible",
+        "reason": "Official source could not be retrieved",
+        "reuseStatus": "not verified"
+      }
+    },
+    {
+      "id": "reg-hipaa",
+      "name": "HIPAA Security Rule and Breach Notification Rule (45 CFR Parts 160, 164)",
+      "short": "HIPAA",
+      "jurisdictions": [
+        "US"
+      ],
+      "authority": "U.S. Department of Health and Human Services",
+      "sourceType": "official",
+      "sourceUrl": "https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164",
+      "penaltyExposure": 4,
+      "appliesWhen": {
+        "dataTypes": [
+          "health"
+        ]
+      },
+      "provisions": [
+        {
+          "id": "hipaa-164-308-a-1-ii-a",
+          "ref": "45 CFR 164.308(a)(1)(ii)(A)",
+          "title": "Security risk analysis",
+          "type": "explicit-requirement",
+          "severity": 4,
+          "obligation": "A covered entity or business associate must conduct an accurate and thorough assessment of the potential risks and vulnerabilities to the confidentiality, integrity and availability of electronic protected health information.",
+          "evidenceTerms": [
+            "risk analysis",
+            "risk assessment",
+            "vulnerabilities",
+            "ephi",
+            "protected health information",
+            "threats"
+          ],
+          "ownerRole": "Security Officer",
+          "verification": [
+            "Dated risk analysis covering all systems holding ePHI"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "hipaa-164-312-a-2-iv",
+          "ref": "45 CFR 164.312(a)(2)(iv)",
+          "title": "Encryption and decryption (addressable)",
+          "type": "explicit-requirement",
+          "severity": 3,
+          "obligation": "Implement a mechanism to encrypt and decrypt electronic protected health information. This specification is addressable: it must be implemented if reasonable and appropriate, otherwise the reason and an equivalent alternative must be documented.",
+          "evidenceTerms": [
+            "encryption",
+            "encrypted",
+            "aes",
+            "tls",
+            "ephi",
+            "at rest"
+          ],
+          "ownerRole": "Security Officer",
+          "verification": [
+            "Encryption evidenced for ePHI at rest, or a documented addressable-specification decision"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        },
+        {
+          "id": "hipaa-164-404",
+          "ref": "45 CFR 164.404",
+          "title": "Breach notification to individuals",
+          "type": "explicit-requirement",
+          "severity": 5,
+          "obligation": "A covered entity must notify each affected individual following discovery of a breach of unsecured protected health information, without unreasonable delay and in no case later than 60 calendar days after discovery.",
+          "evidenceTerms": [
+            "breach",
+            "60 days",
+            "notify",
+            "notification",
+            "individuals",
+            "unsecured",
+            "incident response"
+          ],
+          "ownerRole": "Privacy Officer",
+          "statutoryDeadline": "60 calendar days from discovery (45 CFR 164.404(b))",
+          "verification": [
+            "Breach notification procedure states the 60-day outer limit"
+          ],
+          "textBasis": "paraphrase",
+          "humanReviewRequired": true
+        }
+      ],
+      "sourceCheck": {
+        "status": "verified-official",
+        "checkedOn": "2026-10-29",
+        "method": "Fetched the official eCFR API (ecfr.gov versioner, Title 45 Part 164) and read the cited sections",
+        "officialTextVersion": "eCFR as of 2025-01-01 (later amendments not checked)",
+        "scope": "Section existence and headings; 60-calendar-day outer limit (164.404(b)); encryption specification labelled Addressable (164.312(a)(2)(iv)); risk analysis labelled Required with the opening words of 164.308(a)(1)(ii)(A). The obligation wording itself is a paraphrase.",
+        "reuseStatus": "US federal government work (believed public domain); not independently verified"
+      }
+    }
+  ]
+}

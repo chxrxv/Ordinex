@@ -1,0 +1,24 @@
+{
+  "name": "ordinex-local-ai",
+  "private": true,
+  "description": "ORDINEX local compliance engine: document ingestion, FTS5 retrieval, Ollama inference, validated findings. No paid APIs.",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "eval": "node eval/run-eval.js",
+    "doctor": "node src/doctor.js",
+    "ui": "playwright test --project=fast",
+    "ui:headed": "playwright test --project=fast --headed",
+    "ui:e2e": "playwright test --project=e2e"
+  },
+  "dependencies": {
+    "mammoth": "^1.8.0",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}

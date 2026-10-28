@@ -53,8 +53,10 @@ const missing = REQUIRED_FOR_FRONTEND.filter((k) => !env[k]);
 if (missing.length > 0) {
   fail(`.env is missing values for: ${missing.join(', ')}\nFill these in from Firebase Console -> Project Settings -> General -> Your apps.`);
 }
-if (!env.GEMINI_API_KEY) {
-  console.warn('⚠ GEMINI_API_KEY is not set in .env — AI features (analysis, chat, reports, risk) will not work until you add it and re-run this script.');
+// Local AI build: Gemini is OFF unless GEMINI_ALLOW_CLOUD=true is set on purpose.
+const allowCloud = String(env.GEMINI_ALLOW_CLOUD || '').toLowerCase() === 'true';
+if (allowCloud && !env.GEMINI_API_KEY) {
+  console.warn('⚠ GEMINI_ALLOW_CLOUD=true but GEMINI_API_KEY is empty — cloud AI will not work.');
 }
 
 // ---- 2. Write .firebaserc ----
@@ -88,7 +90,8 @@ console.log('✓ Wrote firebaseConfig into public/ordinex.html');
 const geminiMatch = html.match(/const geminiConfig = \{[\s\S]*?\};/);
 if (!geminiMatch) fail('Could not locate the geminiConfig block in ordinex.html — the file may have been modified unexpectedly.');
 const newGeminiBlock = `const geminiConfig = {
-  apiKey: "${env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY'}",
+  allowCloud: ${allowCloud},
+  apiKey: "${allowCloud ? (env.GEMINI_API_KEY || '') : ''}",
   model: "gemini-flash-lite-latest",
   modelFast: "gemini-flash-lite-latest",
   embedModel: "gemini-embedding-001",

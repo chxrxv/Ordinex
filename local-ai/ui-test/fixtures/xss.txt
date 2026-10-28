@@ -1,0 +1,3 @@
+Encryption: data is encrypted at rest using AES-256.
+
+<img src=x onerror="window.__xss=1"> <script>window.__xss=1</script> Backups are encrypted.
