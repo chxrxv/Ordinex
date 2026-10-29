@@ -158,3 +158,17 @@ test('F9: the profile allow-list stays STRICT - re-writing a whole existing prof
   await assertFails(updateDoc(doc(db, 'users', 'dupuser'), { createdAt: serverTimestamp() }));
   await assertSucceeds(updateDoc(doc(db, 'users', 'dupuser'), { displayName: 'renamed' }));   // legitimate profile edit unaffected
 });
+
+// ---- auditLogs shape pinning (added with the Security & Audit page) ----
+test('auditLogs create: forged timestamp, extra fields, bad status and oversized strings are refused', async () => {
+  const ok = { organizationId: 'orgA', actorUid: 'bob', action: 'x', target: 'y', status: 'success', timestamp: serverTimestamp() };
+  const b = as('bob');
+  await assertSucceeds(addDoc(collection(b, 'auditLogs'), ok));
+  await assertFails(addDoc(collection(b, 'auditLogs'), { ...ok, timestamp: new Date('2020-01-01') }));
+  await assertFails(addDoc(collection(b, 'auditLogs'), { ...ok, extra: 'smuggled' }));
+  await assertFails(addDoc(collection(b, 'auditLogs'), { ...ok, status: 'pwned' }));
+  await assertFails(addDoc(collection(b, 'auditLogs'), { ...ok, action: 'a'.repeat(201) }));
+  await assertFails(addDoc(collection(b, 'auditLogs'), { ...ok, target: 't'.repeat(301) }));
+  const { timestamp, ...noTs } = ok;
+  await assertFails(addDoc(collection(b, 'auditLogs'), noTs));
+});

@@ -105,8 +105,8 @@ test('audit logs: admins of the org read; immutable; actor must be the caller', 
   await assertFails(getDoc(doc(as('carol'), 'auditLogs', 'lA')));
   await assertFails(updateDoc(doc(as('alice'), 'auditLogs', 'lA'), { actorUid: 'x' }));
   await assertFails(deleteDoc(doc(as('alice'), 'auditLogs', 'lA')));
-  await assertSucceeds(setDoc(doc(as('bob'), 'auditLogs', 'l2'), { organizationId: 'orgA', actorUid: 'bob' }));
-  await assertFails(setDoc(doc(as('bob'), 'auditLogs', 'l3'), { organizationId: 'orgA', actorUid: 'alice' }));
+  await assertSucceeds(setDoc(doc(as('bob'), 'auditLogs', 'l2'), { organizationId: 'orgA', actorUid: 'bob', action: 'x', target: 'y', status: 'success', timestamp: serverTimestamp() }));
+  await assertFails(setDoc(doc(as('bob'), 'auditLogs', 'l3'), { organizationId: 'orgA', actorUid: 'alice', action: 'x', target: 'y', status: 'success', timestamp: serverTimestamp() }));
 });
 test('platformAdmins and unknown collections are closed; regulations writable only by platform admins', async () => {
   await assertFails(getDoc(doc(as('alice'), 'platformAdmins', 'root')));

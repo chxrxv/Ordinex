@@ -334,7 +334,17 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     match /auditLogs/{logId} {
       allow read: if isAdmin() && isSameOrg(resource.data.organizationId);
-      allow create: if callerHasOrg() && request.resource.data.organizationId == orgIdOfCaller() && request.resource.data.actorUid == request.auth.uid;
+      // Shape is pinned: exact key set, bounded strings, status enum, server-assigned timestamp. Forged
+      // timestamps / oversized or extra fields are refused. (Still client-written, so not a tamper-proof ledger.)
+      allow create: if callerHasOrg()
+        && request.resource.data.organizationId == orgIdOfCaller()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['organizationId','actorUid','action','target','status','timestamp'])
+        && request.resource.data.keys().hasAll(['organizationId','actorUid','action','target','status','timestamp'])
+        && request.resource.data.action is string && request.resource.data.action.size() > 0 && request.resource.data.action.size() <= 200
+        && request.resource.data.target is string && request.resource.data.target.size() <= 300
+        && request.resource.data.status in ['success','failed','warning','info']
+        && request.resource.data.timestamp == request.time;
       allow update, delete: if false; // immutable once written, even from the client
     }
 

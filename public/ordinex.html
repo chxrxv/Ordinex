@@ -35133,6 +35133,7 @@ const DB = {
 /* ---------------------------- APP STATE ---------------------------- */
 const STATE = {
   authed:false,
+  statusChecks:null, statusRunning:false, auditSearch:'',
   pendingInvites:[], inviteEmailVerified:false, inviteCheckedFor:null, // invitation for the signed-in user's own email (see loadPendingInvitation)
   needsOrg:false, // true once we know a signed-in user has no organizationId yet (e.g. signed up via Google, which has no org-name field) — gates the dashboard behind a one-time onboarding screen instead of silently showing stale placeholder numbers
   appReady:false, // LIVE_MODE only: false from sign-in until the first real users/{uid} snapshot resolves — see the render() gate for why this exists
@@ -35315,6 +35316,8 @@ const NAV_SECTIONS = [
   { label:'Organization', items:[
     { key:'team', label:'Team', icon:'users' },
     { key:'monitoring', label:'Regulatory Monitoring', icon:'radio' },
+    { key:'security', label:'Security & Audit', icon:'shield-check' },
+    { key:'status', label:'System Status', icon:'database' },
     { key:'settings', label:'Settings', icon:'settings' },
   ]},
 ];
@@ -35360,7 +35363,7 @@ function renderTopbar(){
     dashboard:'Dashboard', documents:'Document Management', comparison:'Regulation Comparison', compliance:'Compliance Gap Analysis',
     risk:'Risk Assessment', knowledge:'Regulation Knowledge Base', analytics:'Compliance Analytics', reports:'Reports Center',
     alerts:'Alerts & Notifications', assistant:'AI Compliance Assistant', team:'Team Management', monitoring:'Regulatory Monitoring',
-    settings:'Settings', admin:'Admin Console'
+    settings:'Settings', security:'Security & Audit', status:'System Status', admin:'Admin Console'
   };
   const u = DB.currentUser;
   return `
@@ -35516,6 +35519,8 @@ function renderAppPage(){
     case 'team': return renderTeam();
     case 'monitoring': return renderMonitoring();
     case 'settings': return renderSettings();
+    case 'security': return renderSecurity();
+    case 'status': return renderStatus();
     case 'admin': return (!LIVE_MODE || STATE.isPlatformAdmin) ? renderAdmin() : renderAdminRestricted();
     default: return renderDashboard();
   }
@@ -35567,7 +35572,7 @@ function renderLanding(){
       Navigate Global Compliance with <span style="background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent;">AI Precision</span>
     </h1>
     <p class="fade-in" style="font-size:18px; color:var(--text-2); max-width:680px; margin:0 auto 34px; line-height:1.6;">
-      Compare regulations across countries, identify compliance gaps, assess risks, and stay updated with changing laws. Trusted by compliance teams worldwide.
+      Compare regulation records across countries, identify potential compliance gaps with AI-assisted analysis, assess risks, and track remediation. AI output is advisory and needs human review.
     </p>
     <div class="fade-in" style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:20px;">
       <button class="btn btn-primary" style="padding:14px 26px; font-size:15px;" onclick="nav('register')">Start Free Analysis ${icon('arrow-right',16)}</button>
@@ -35582,6 +35587,7 @@ function renderLanding(){
   <!-- LIVE DASHBOARD PREVIEW -->
   <section style="max-width:1080px; margin:0 auto 100px; padding:0 28px;">
     <div class="glass fade-in" style="padding:28px; background:linear-gradient(135deg, rgba(91,124,250,0.10), rgba(139,92,246,0.10));">
+      <div class="badge badge-neutral" style="margin-bottom:16px;">Illustrative sample preview — not real customer data</div>
       <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
         ${miniStat('Compliance Score','78%','shield-check','var(--accent-1)', 76)}
         ${miniStat('High Risk Issues','12','alert-triangle','var(--warning)')}
@@ -35616,12 +35622,12 @@ function renderLanding(){
       ${featureCard('git-compare','Regulation Comparison','Compare regulations across multiple countries side-by-side with AI-powered analysis.')}
       ${featureCard('search-check','Compliance Gap Analysis','Automatically identify compliance gaps and receive actionable recommendations.')}
       ${featureCard('shield-alert','Risk Assessment','Evaluate regulatory risks with comprehensive impact scoring and forecasting.')}
-      ${featureCard('book-open','Knowledge Base','Access a searchable library of global regulations, updated in real-time.')}
+      ${featureCard('book-open','Knowledge Base','Browse a searchable library of sample regulation records (paraphrased reference summaries, not official legal text).')}
       ${featureCard('file-bar-chart','Automated Reports','Generate compliance, risk, and audit reports with a single click.')}
       ${featureCard('radio','Regulatory Monitoring','Stay updated with live regulatory changes and amendments worldwide.')}
       ${featureCard('bar-chart-3','Advanced Analytics','Track compliance trends and performance metrics across your organization.')}
       ${featureCard('users','Team Collaboration','Assign tasks, track progress, and collaborate on compliance initiatives.')}
-      ${featureCard('lock','Enterprise Security','SOC 2 Type II certified with end-to-end encryption.')}
+      ${featureCard('lock','Enterprise Security','Firebase Authentication, organisation-level access rules and HTTPS encryption in transit. No third-party security certification is claimed.')}
     </div>
   </section>
 
@@ -35636,7 +35642,7 @@ function renderLanding(){
         ${stepCard(3,'zap','AI Analysis','Our AI analyzes documents against regulations')}
         ${stepCard(4,'shield-alert','Risk Assessment','Get comprehensive risk scores and insights')}
         ${stepCard(5,'file-bar-chart','Generate Reports','Create compliance reports automatically')}
-        ${stepCard(6,'pie-chart','Monitor Updates','Track regulatory changes in real-time')}
+        ${stepCard(6,'pie-chart','Monitor Updates','Review regulation records and track your findings')}
       </div>
     </div>
   </section>
@@ -35651,30 +35657,18 @@ function renderLanding(){
     </div>
   </section>
 
-  <!-- TESTIMONIALS -->
-  <section style="background:var(--bg-1); border-top:1px solid var(--border); border-bottom:1px solid var(--border); padding:90px 28px;">
-    <div style="max-width:1080px; margin:0 auto; text-align:center;">
-      <h2 style="font-size:32px; font-weight:800; margin-bottom:14px;">Loved by Compliance Teams</h2>
-      <p style="color:var(--text-2); font-size:16px; margin-bottom:44px;">See what industry leaders say about Ordinex.</p>
-      <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); text-align:left;">
-        ${testimonial('Ordinex reduced our compliance review time by 60%. The AI-powered gap analysis is incredibly accurate.','Sarah Mitchell','Chief Compliance Officer, FinovaTech')}
-        ${testimonial('Finally, a platform that understands global regulations. We went from chaos to clarity in weeks.','James Chen','VP of Legal Operations, GlobalHealth Inc')}
-        ${testimonial('The ROI was immediate. We avoided potential fines worth millions with early regulatory change alerts.','Emma Rodriguez','Director of Risk Management, SecureBank')}
-      </div>
-    </div>
-  </section>
-
   <!-- PRICING -->
   <section id="pricing" style="max-width:1180px; margin:0 auto; padding:90px 28px; text-align:center;">
-    <h2 style="font-size:36px; font-weight:800; margin-bottom:14px;">Simple, Transparent Pricing</h2>
-    <p style="color:var(--text-2); font-size:16px; margin-bottom:46px;">Choose the plan that fits your organization.</p>
+    <h2 style="font-size:36px; font-weight:800; margin-bottom:14px;">Plan Tiers</h2>
+    <p style="color:var(--text-2); font-size:16px; margin-bottom:14px;">Illustrative tiers. No payment provider is connected yet, and plan limits are not enforced automatically.</p>
+    <p style="color:var(--text-3); font-size:13.5px; margin-bottom:46px;">Seat limits are set by the platform administrator. Features not listed here are not currently available.</p>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); text-align:left; align-items:stretch;">
       ${pricingCard('Starter','$299','/month','For small teams getting started with compliance',
-        ['Up to 50 documents','3 jurisdictions','Basic gap analysis','Email support','5 team members'], false)}
+        ['Document upload and AI-assisted gap analysis','Organisation workspace with roles','Seat limit: 5'], false)}
       ${pricingCard('Professional','$799','/month','For growing organizations with complex needs',
-        ['Unlimited documents','15 jurisdictions','Advanced AI analysis','Priority support','25 team members','API access','Custom reports'], true)}
+        ['Everything in Starter','Seat limit: 25','Report generation (in-app)'], true)}
       ${pricingCard('Enterprise','Custom','','For large organizations with global operations',
-        ['Everything in Professional','50+ jurisdictions','Dedicated account manager','Custom integrations','SLA guarantee','On-premise option','SSO/SAML'], false)}
+        ['Everything in Professional','Seat limit set by agreement','Contact us to discuss requirements'], false)}
     </div>
   </section>
 
@@ -35700,13 +35694,13 @@ function renderLanding(){
           </div>
           <p style="color:var(--text-2); font-size:13.5px; max-width:260px; line-height:1.6;">AI-powered global compliance intelligence platform for modern organizations.</p>
         </div>
-        ${footerCol('Product',['Features','Pricing','API','Integrations'])}
+        ${footerCol('Product',['Features','Pricing'])}
         ${footerCol('Company',['About','Blog','Careers','Contact'])}
         ${footerCol('Legal',['Privacy Policy','Terms of Service','Security','GDPR'])}
       </div>
       <div style="border-top:1px solid var(--border); padding-top:24px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-size:12.5px; color:var(--text-3);">
         <span>© 2025 Ordinex. All rights reserved.</span>
-        <span style="display:flex; gap:16px;">SOC 2 Type II &nbsp;•&nbsp; ISO 27001</span>
+        <span style="display:flex; gap:16px;">Sign-in secured by Firebase Authentication &nbsp;•&nbsp; no security certification claimed</span>
       </div>
     </div>
   </footer>
@@ -36047,19 +36041,19 @@ function renderDashboard(){
 
   <div class="glass" style="padding:22px;">
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-      <div><div style="font-weight:700; font-size:16px;">Regulatory Updates</div><div style="font-size:12.5px; color:var(--text-2);">Recent changes to monitored regulations</div></div>
+      <div><div style="font-weight:700; font-size:16px;">${LIVE_MODE ? 'Regulation Records' : 'Regulatory Updates'}</div><div style="font-size:12.5px; color:var(--text-2);">${LIVE_MODE ? 'Sample reference records — not detected regulatory changes' : 'Recent changes to monitored regulations'}</div></div>
       <a style="font-size:13px; font-weight:600; color:var(--accent-1); display:flex; align-items:center; gap:4px; cursor:pointer;" onclick="go('monitoring')">View All ${icon('arrow-right',14)}</a>
     </div>
     <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr);">
       ${computeRegulatoryFeed().slice(0,4).map(f=>`
         <div class="glass card-hover" style="padding:16px; background:var(--bg-1);">
           <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-            <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${f.type}</span>
+            <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${feedTypeLabel(f.type)}</span>
             <span style="font-size:12px; color:var(--text-2); align-self:center;">${f.country}</span>
           </div>
           <div style="font-weight:700; font-size:14px; margin-bottom:6px;">${f.reg}</div>
           <div style="font-size:12.5px; color:var(--text-2); margin-bottom:10px; line-height:1.5;">${f.title}</div>
-          <div style="font-size:11.5px; color:var(--text-3);">Effective: ${fmtDate(String(f.effective).slice(0,10))}</div>
+          <div style="font-size:11.5px; color:var(--text-3);">${feedDateText(f)}</div>
         </div>`).join('')}
     </div>
   </div>
@@ -36434,7 +36428,8 @@ function renderComparison(){
   const totalCount = withReg.reduce((n,p) => n + p.reg.requirements.length, 0);
   return `
   ${pageHeader('Regulation Comparison','Compare regulations across countries and identify differences.',
-    `<button class="btn btn-primary" onclick="toast('New comparison workspace created.','success')">${icon('plus',16)} New Comparison</button>`)}
+    `<button class="btn btn-primary" onclick="toast('Saved comparison workspaces are not available yet. Use the country selectors below to compare the reference records.','info')">${icon('plus',16)} New Comparison</button>`)}
+  ${LIVE_MODE ? `<div class="glass" role="note" style="padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:flex-start; background:var(--bg-1);">${icon('info',16)}<span style="font-size:12.5px; color:var(--text-2); line-height:1.5;"><b>Reference summaries only.</b> The requirements compared here come from sample, paraphrased records that are not verified against official sources. They are not legal advice.</span></div>` : ''}
 
   <div class="glass" style="padding:20px; margin-bottom:20px;">
     <div style="display:flex; gap:24px; flex-wrap:wrap;">
@@ -36613,7 +36608,10 @@ function i_resolve(id){ const i = DB.complianceIssues.find(x=>x.id===id); i.stat
 function exportCSV(data, filename){
   if(!data || data.length===0){ toast('Nothing to export for the current filters.','info'); return; }
   const headers = Object.keys(data[0]);
-  const rows = data.map(row => headers.map(h => `"${String(row[h]).replace(/"/g,'""')}"`).join(','));
+  // CSV/formula injection: a text cell starting with = + - @ (or tab/CR) is executed by Excel/Sheets. Prefix such text with an
+  // apostrophe so it stays inert; real numbers are left untouched.
+  const csvCell = (v) => { let s = String(v == null ? '' : v); if(typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g,'""')}"`; };
+  const rows = data.map(row => headers.map(h => csvCell(row[h])).join(','));
   const csv = [headers.join(','), ...rows].join('\n'); // was '\\n' (literal backslash-n text, not a real line break) — every row ran together on one line, unreadable by any CSV parser
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
@@ -37850,12 +37848,144 @@ function computeRegulatoryFeed(){
       id: r.id, type, country: r.country, domain: r.domain,
       title: gapCount>0 ? `${r.short}: ${gapCount} open requirement gap${gapCount>1?'s':''}` : `${r.short}: requirements up to date`,
       body: r.description,
-      reg: r.short, effective: r.updated || new Date().toISOString().slice(0,10),
+      reg: r.short, effective: r.updated || null, // never invent a date: unknown stays unknown
       impact: Math.min(95, 35 + gapCount*25 + partialCount*10),
       tags: r.tags || [],
       requirements: r.requirements || [],
     };
-  }).sort((a,b)=> String(b.effective).localeCompare(String(a.effective)));
+  }).sort((a,b)=> String(b.effective||'').localeCompare(String(a.effective||'')));
+}
+
+/* ================================================================
+   SYSTEM STATUS — read-only checks of integrations this page can ACTUALLY test.
+   A row is green only when a real check succeeded; "configured" is never treated as "working".
+   ================================================================ */
+const STATUS_META = {
+  ok:           { label:'Operational',     cls:'badge-success', ic:'check-circle-2' },
+  warn:         { label:'Needs attention', cls:'badge-warning', ic:'alert-triangle' },
+  error:        { label:'Unavailable',     cls:'badge-danger',  ic:'x-circle' },
+  notconnected: { label:'Not connected',   cls:'badge-neutral', ic:'info' },
+  na:           { label:'Not applicable',  cls:'badge-neutral', ic:'info' },
+  unknown:      { label:'Not checked',     cls:'badge-neutral', ic:'clock' },
+};
+function statusPill(state){
+  const m = STATUS_META[state] || STATUS_META.unknown;
+  return `<span class="badge ${m.cls}" style="display:inline-flex; align-items:center; gap:5px;">${icon(m.ic,12)} ${m.label}</span>`;
+}
+function renderStatus(){
+  const c = STATE.statusChecks;
+  if(LIVE_MODE && !c && !STATE.statusRunning && window.runStatusChecks) setTimeout(()=>window.runStatusChecks(), 0);
+  const row = (name, key, help, action) => {
+    const r = c && c[key];
+    return `<tr>
+      <td style="vertical-align:top; width:24%;"><div style="font-weight:700; color:var(--text-0);">${name}</div></td>
+      <td style="vertical-align:top; width:16%;" data-status-key="${key}">${statusPill(r ? r.state : (STATE.statusRunning ? 'unknown' : 'unknown'))}</td>
+      <td style="vertical-align:top;"><div data-status-detail="${key}">${r ? esc(r.detail) : (STATE.statusRunning ? 'Checking…' : '—')}</div><div style="font-size:12px; color:var(--text-3); margin-top:4px;">${help}</div>${action && r && r.state==='notconnected' ? action : ''}</td>
+    </tr>`;
+  };
+  return `
+  ${pageHeader('System Status','Read-only checks of the integrations this page can actually test.',
+    `<button class="btn btn-ghost" ${STATE.statusRunning ? 'disabled' : ''} onclick="${LIVE_MODE ? 'runStatusChecks()' : `toast('Live checks need live mode with Firebase configured.','info')`}">${icon('refresh-cw',16)} ${STATE.statusRunning ? 'Checking…' : 'Run checks'}</button>`)}
+  ${!LIVE_MODE ? `<div class="glass" role="note" style="padding:12px 16px; margin-bottom:16px; background:var(--bg-1); font-size:12.5px; color:var(--text-2);"><b>Demo mode.</b> Firebase is not configured here, so no live checks can run. Nothing below is a real measurement.</div>` : ''}
+  <div class="glass" style="padding:22px;">
+    <div role="status" aria-live="polite" style="font-size:12.5px; color:var(--text-3); margin-bottom:12px;">${c ? 'Last checked: ' + esc(c.ranAt) : (STATE.statusRunning ? 'Running checks…' : 'Checks have not run yet.')}</div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Component</th><th>Status</th><th>Detail</th></tr></thead><tbody>
+      ${row('Authentication','auth','Firebase Authentication session for your account.')}
+      ${row('Database (Firestore)','firestore','Whether your signed-in session can read your own profile under the security rules.')}
+      ${row('Organisation context','org','The organisation and role this session operates under.')}
+      ${row('Local AI backend and model','localAi','AI analysis runs on a backend you start on your own computer (Ollama). The hosted website cannot reach another person\'s computer, so this is "Not connected" until you run it locally and connect.', `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="document.getElementById('local-ai-badge') && document.getElementById('local-ai-badge').click()">Connect to my local backend</button>`)}
+      ${row('Cloud AI','cloudAi','Cloud AI providers are disabled by design; documents are not sent to a cloud model.')}
+      ${row('Regulation reference data','dataset','Number of reference records visible to your organisation. They are paraphrased samples, not verified legal text.')}
+      ${row('Platform administration','platform','Whether this account holds platform-admin rights. Granting them is a manual step done by the project owner.')}
+    </tbody></table></div>
+    <p style="font-size:12px; color:var(--text-3); margin-top:14px; line-height:1.55;">Release and Hosting version metadata are not exposed to the browser; see the deployment notes. These checks only report what this page can observe from your session. They are not a monitoring or uptime service.</p>
+  </div>`;
+}
+
+/* ================================================================
+   SECURITY & AUDIT — what this session is allowed to do, what the platform does and does NOT claim, and the audit trail.
+   ================================================================ */
+function renderSecurity(){
+  const u = DB.currentUser || {};
+  const role = u.role || 'user';
+  const isAdminRole = role === 'admin';
+  const caps = [
+    ['View your organisation\'s documents, reports and findings', ['admin','compliance_officer','analyst','user']],
+    ['Upload documents, run analysis, generate reports and risk assessments', ['admin','compliance_officer','analyst','user']],
+    ['Resolve compliance issues', ['admin','compliance_officer','analyst','user']],
+    ['Delete documents', ['admin','compliance_officer']],
+    ['Delete reports and risk assessments', ['admin']],
+    ['Invite or remove members, change roles, rename the organisation', ['admin']],
+    ['View the audit trail', ['admin']],
+    ['Change plan or seat limits', []],
+    ['Update shared regulation records', []],
+  ];
+  const platformOnly = (label) => /plan or seat|shared regulation/.test(label);
+  const allowed = (label, roles) => platformOnly(label) ? (LIVE_MODE && STATE.isPlatformAdmin === true) : roles.includes(role);
+  const q = (STATE.auditSearch || '').trim().toLowerCase();
+  const logs = (DB.auditLogs || []).filter(l => !q || [l.action,l.actor,l.target,l.status].join(' ').toLowerCase().includes(q));
+  const earliest = (DB.auditLogs || []).length ? DB.auditLogs[DB.auditLogs.length-1].time : null;
+  return `
+  ${pageHeader('Security & Audit','Your access, what the platform does and does not claim, and the audit trail.')}
+  <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
+    ${statCard('Signed in as', esc(u.email || '—'), LIVE_MODE ? 'Firebase Authentication' : 'demo session','users','var(--accent-1)')}
+    ${statCard('Organisation', esc(u.org || '—'), 'your data boundary','shield-check','var(--accent-2)')}
+    ${statCard('Role', esc(role.replace('_',' ')), 'enforced by security rules','key','var(--success)')}
+    ${statCard('Email', u.emailVerified ? 'Verified' : (LIVE_MODE ? 'Not verified' : '—'), 'required to accept invitations','lock','var(--warning)')}
+  </div>
+  <div class="glass" style="padding:22px; margin-bottom:20px;">
+    <div style="font-weight:700; font-size:16px; margin-bottom:2px;">What your session can do</div>
+    <div style="font-size:12.5px; color:var(--text-2); margin-bottom:14px;">Permissions are enforced server-side by Firestore security rules; hiding a button is never the control.</div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Capability</th><th>Allowed roles</th><th>Your session</th></tr></thead><tbody>
+      ${caps.map(([label, roles]) => `<tr><td>${label}</td><td>${platformOnly(label) ? 'Platform administrators only' : roles.map(r=>r.replace('_',' ')).join(', ')}</td><td>${allowed(label, roles) ? statusPill('ok').replace('Operational','Allowed') : '<span class="badge badge-neutral">Not allowed</span>'}</td></tr>`).join('')}
+    </tbody></table></div>
+  </div>
+  <div class="grid-cols-auto" style="grid-template-columns:repeat(2,1fr); margin-bottom:20px;">
+    <div class="glass" style="padding:22px;">
+      <div style="font-weight:700; font-size:16px; margin-bottom:10px;">Controls in this build</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.5px; color:var(--text-2); line-height:1.7;">
+        <li>Sign-in with Firebase Authentication (email/password and Google).</li>
+        <li>Organisation isolation and role checks in Firestore security rules.</li>
+        <li>Invitations are single-use, expire, and require a verified email.</li>
+        <li>Plan, seat and shared-regulation changes are limited to platform administrators.</li>
+        <li>Audit entries are append-only and cannot be edited or deleted by users.</li>
+        <li>AI analysis runs locally; documents are not sent to a cloud model.</li>
+      </ul>
+    </div>
+    <div class="glass" style="padding:22px;">
+      <div style="font-weight:700; font-size:16px; margin-bottom:10px;">What is not claimed</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.5px; color:var(--text-2); line-height:1.7;">
+        <li>No SOC 2, ISO 27001 or other security certification.</li>
+        <li>No independent penetration test or continuous monitoring service.</li>
+        <li>No guarantee of legal compliance: AI output is advisory and needs human review.</li>
+        <li>Regulation records are unverified paraphrased samples, not official legal text.</li>
+        <li>The audit trail is not a tamper-proof compliance ledger (see below).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="glass" style="padding:22px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+      <div><div style="font-weight:700; font-size:16px;">Audit trail</div>
+      <div style="font-size:12.5px; color:var(--text-2);">Security-relevant actions recorded for your organisation.</div></div>
+      ${isAdminRole ? `<div class="search-box" style="width:240px;">${icon('search',15)}<input id="auditSearchInput" aria-label="Filter audit events" placeholder="Filter events…" value="${esc(STATE.auditSearch)}" oninput="STATE.auditSearch=this.value; render();" /></div>` : ''}
+    </div>
+    ${!LIVE_MODE ? `<p style="font-size:12.5px; color:var(--text-3);">Demo mode: no real audit events exist.</p>`
+      : !isAdminRole ? `<p style="font-size:13px; color:var(--text-2);">The audit trail is visible to organisation admins only. Your role is <b>${esc(role.replace('_',' '))}</b>.</p>`
+      : (DB.auditLogs||[]).length === 0 ? emptyState('file-text','No audit events recorded yet','Events appear here as actions are performed.')
+      : `<div style="overflow-x:auto;"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>
+          ${logs.map(l=>`<tr><td class="font-mono" style="font-size:12px;">${esc(l.time)}</td><td>${esc(l.actor)}</td><td style="color:var(--text-0); font-weight:600;">${esc(l.action)}</td><td>${esc(l.target)}</td><td>${statusBadge(l.status)}</td></tr>`).join('') || `<tr><td colspan="5" style="color:var(--text-3);">No events match this filter.</td></tr>`}
+        </tbody></table></div>
+        <p style="font-size:12px; color:var(--text-3); margin-top:12px; line-height:1.55;">Showing up to the most recent 100 events${earliest ? '; the oldest loaded event is from ' + esc(earliest) : ''}. Reliable history begins only when the platform started recording events; earlier activity was not logged. Entries are written by the application on behalf of signed-in users; the rules restrict their shape and block edits and deletes, but this is not an independent, tamper-proof ledger.</p>`}
+  </div>`;
+}
+
+/* In live mode the "feed" is NOT a stream of detected regulatory changes: it is one reference record per regulation in the
+   shared database, and the labels below say so. The old Amendment/Updated/New badges, "Effective" dates (today's date when
+   none was recorded) and "Impact Score" implied real events and official ratings that do not exist. */
+function feedTypeLabel(t){ return LIVE_MODE ? (({New:'No gaps flagged', Amendment:'Gaps flagged', Updated:'Partially met'})[t] || t) : t; }
+function feedDateText(f){
+  if(!LIVE_MODE) return 'Effective: ' + fmtDate(String(f.effective).slice(0,10));
+  return f.effective ? 'Record date (unverified): ' + fmtDate(String(f.effective).slice(0,10)) : 'Record date: not recorded';
 }
 function renderMonitoring(){
   let feed = computeRegulatoryFeed();
@@ -37870,12 +38000,13 @@ function renderMonitoring(){
   const totalFeed = feed.length;
   feed = feed.slice(0, STATE.monitorDisplayLimit);
   return `
-  ${pageHeader('Regulatory Monitoring','Track regulatory changes across your monitored jurisdictions in real-time.')}
+  ${pageHeader('Regulatory Monitoring', LIVE_MODE ? 'Reference records from the shared regulation database.' : 'Track regulatory changes across your monitored jurisdictions in real-time.')}
+  ${LIVE_MODE ? `<div class="glass" role="note" style="padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:flex-start; background:var(--bg-1);">${icon('info',16)}<span style="font-size:12.5px; color:var(--text-2); line-height:1.5;"><b>No live regulatory change detection is connected.</b> The entries below are sample reference records, not newly detected amendments. Their dates and gap indices are unverified and are not official ratings. Check the regulator's publication for current law.</span></div>` : ''}
   <div class="grid-cols-auto" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
-    ${statCard('Recent Updates', allFeed.length, LIVE_MODE?'in your regulation database':'last 30 days','radio','var(--accent-1)')}
-    ${statCard('High Impact', allFeed.filter(f=>f.impact>=70).length,'need review','alert-triangle','var(--warning)')}
-    ${statCard('Countries', countriesTracked,'monitored','globe','var(--success)')}
-    ${statCard('Regulations Tracked', allFeed.length,'across all domains','file-text','var(--accent-2)')}
+    ${statCard(LIVE_MODE?'Reference Records':'Recent Updates', allFeed.length, LIVE_MODE?'in the shared regulation database':'last 30 days','radio','var(--accent-1)')}
+    ${statCard(LIVE_MODE?'High Gap Index':'High Impact', allFeed.filter(f=>f.impact>=70).length, LIVE_MODE?'sample formula, not an official rating':'need review','alert-triangle','var(--warning)')}
+    ${statCard(LIVE_MODE?'Countries Covered':'Countries', countriesTracked, LIVE_MODE?'by the reference records':'monitored','globe','var(--success)')}
+    ${statCard(LIVE_MODE?'Regulation Records':'Regulations Tracked', allFeed.length, LIVE_MODE?'unverified reference summaries':'across all domains','file-text','var(--accent-2)')}
   </div>
   <div class="glass" style="padding:16px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap;">
     <div class="search-box" style="flex:1; width:auto; min-width:220px;">${icon('search',16)}<input id="monitorSearchInput" placeholder="Search updates..." value="${esc(STATE.monitorSearch)}" oninput="STATE.monitorSearch=this.value; render();" /></div>
@@ -37885,26 +38016,26 @@ function renderMonitoring(){
     </select>
     <select style="width:auto;" onchange="STATE.monitorType=this.value; render();">
       <option ${STATE.monitorType==='All Types'?'selected':''}>All Types</option>
-      ${['New','Amendment','Updated'].map(t=>`<option ${STATE.monitorType===t?'selected':''}>${t}</option>`).join('')}
+      ${['New','Amendment','Updated'].map(t=>`<option value="${t}" ${STATE.monitorType===t?'selected':''}>${feedTypeLabel(t)}</option>`).join('')}
     </select>
   </div>
   <div class="glass" style="padding:22px;">
-    <div style="font-weight:700; font-size:16px; margin-bottom:2px;">Regulatory Feed</div>
-    <div style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">Recent changes to your monitored regulations</div>
+    <div style="font-weight:700; font-size:16px; margin-bottom:2px;">${LIVE_MODE ? 'Regulation Records' : 'Regulatory Feed'}</div>
+    <div style="font-size:12.5px; color:var(--text-2); margin-bottom:18px;">${LIVE_MODE ? 'Sample reference records. This is not a feed of real regulatory changes.' : 'Recent changes to your monitored regulations'}</div>
     ${feed.length===0 ? emptyState('radio','No updates match these filters','Try a different country, type, or search term.') :
     feed.map(f=>`
     <div style="display:flex; gap:16px; padding:18px 0; border-bottom:1px solid var(--border);">
       <div class="icon-box" style="background:${f.type==='New'?'var(--success-bg)':f.type==='Amendment'?'var(--warning-bg)':'rgba(91,124,250,0.14)'}; color:${f.type==='New'?'var(--success)':f.type==='Amendment'?'var(--warning)':'var(--accent-1)'};">${icon('file-text',17)}</div>
       <div style="flex:1;">
         <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
-          <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(f.type)}</span>
+          <span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(feedTypeLabel(f.type))}</span>
           <span style="font-size:12.5px; color:var(--text-2); display:flex; align-items:center; gap:4px;">${icon('globe',12)} ${esc(f.country)}</span>
           <span style="font-size:12.5px; color:var(--text-3);">${esc(f.domain)}</span>
         </div>
         <div style="font-weight:700; font-size:15px; margin-bottom:6px;">${esc(f.title)}</div>
         <p style="font-size:13.5px; color:var(--text-2); line-height:1.55; margin-bottom:10px;">${esc(f.body)}</p>
         <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-3); margin-bottom:10px;">
-          <span>${icon('bookmark',12)} ${esc(f.reg)}</span><span>${icon('calendar',12)} Effective: ${fmtDate(String(f.effective).slice(0,10))}</span><span>${icon('trending-up',12)} Impact Score: ${f.impact}</span>
+          <span>${icon('bookmark',12)} ${esc(f.reg)}</span><span>${icon('calendar',12)} ${feedDateText(f)}</span><span>${icon('trending-up',12)} ${LIVE_MODE ? 'Gap index (sample formula, unverified): ' : 'Impact Score: '}${f.impact}</span>
         </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">${f.tags.map(t=>`<span class="badge badge-neutral">${esc(t)}</span>`).join('')}</div>
       </div>
@@ -37919,7 +38050,7 @@ function viewFeedDetails(id){
   if(!f){ toast('This update is no longer available.','warning'); return; }
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-      <div style="display:flex; gap:8px;"><span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(f.type)}</span><span class="badge badge-info">${esc(f.country)}</span><span class="badge badge-neutral">${esc(f.domain)}</span></div>
+      <div style="display:flex; gap:8px;"><span class="badge ${f.type==='New'?'badge-success':f.type==='Amendment'?'badge-warning':'badge-info'}">${esc(feedTypeLabel(f.type))}</span><span class="badge badge-info">${esc(f.country)}</span><span class="badge badge-neutral">${esc(f.domain)}</span></div>
       <button class="icon-btn" onclick="closeModal()">${icon('x',18)}</button>
     </div>
     <h3 style="font-size:19px; font-weight:800; margin-bottom:8px;">${esc(f.title)}</h3>
@@ -38414,7 +38545,7 @@ ${text.slice(0, 15000)}
   async function writeAuditLog({ organizationId, actorUid, action, target, status = 'success' }) {
     try {
       await fb.addDoc(fb.collection(fbDb, 'auditLogs'), {
-        organizationId, actorUid, action, target, status, timestamp: fb.serverTimestamp(),
+        organizationId, actorUid, action: String(action == null ? 'Action' : action).slice(0, 200), target: String(target == null ? '' : target).slice(0, 300), status, timestamp: fb.serverTimestamp(),
       });
     } catch (e) { console.error('Audit log write failed:', e); }
   }
@@ -38766,7 +38897,7 @@ ${text.slice(0, 15000)}
     const q = fb.query(fb.collection(fbDb, 'auditLogs'), fb.where('organizationId', '==', orgId), fb.orderBy('timestamp', 'desc'), fb.limit(100));
     unsubAuditLogs = fb.onSnapshot(q, (snap) => {
       DB.auditLogs = snap.docs.map((d) => normalizeFirestoreAuditLog(d.id, d.data()));
-      if (STATE.route === 'app' && STATE.appPage === 'monitoring') render();
+      if (STATE.route === 'app' && (STATE.appPage === 'security' || STATE.appPage === 'settings')) render();
     }, (err) => console.error('Audit log listener error:', err));
   }
 
@@ -38904,6 +39035,7 @@ ${text.slice(0, 15000)}
           avatarColor: DB.currentUser.avatarColor, initials: (u.displayName || user.email || '?').slice(0,2).toUpperCase(),
           photoURL: u.photoURL || null,
           notificationPrefs: u.notificationPrefs || null,
+          emailVerified: !!user.emailVerified,
         };
         STATE.needsOrg = !u.organizationId;
         if (STATE.needsOrg && window.loadPendingInvitation) window.loadPendingInvitation(user);
@@ -39162,6 +39294,44 @@ ${text.slice(0, 15000)}
         ? 'This invitation can no longer be accepted (expired, already used, email not verified, or withdrawn). Ask your admin to send a new one.'
         : 'Could not accept the invitation: ' + e.message, 'danger', 'Error');
     }
+  };
+
+  // ---- System Status: real, read-only checks (never "configured == working"). ----
+  async function checkLocalAi() {
+    const base = localAIConfig.baseUrl;
+    if (base === null) return { state: 'notconnected', detail: 'This hosted website cannot reach a backend on your computer. Start Ordinex locally (npm run ai) and connect it.' };
+    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      const res = await fetch(base + '/api/health', { signal: ctrl.signal });
+      const ct = res.headers.get('content-type') || '';
+      const j = ct.includes('json') ? await res.json().catch(() => null) : null;
+      if (!res.ok || !j || j.backend !== 'ok') return { state: 'error', detail: 'No Ordinex backend answered on this computer (received something that is not the Ordinex API).' };
+      const ai = j.ai || {};
+      if (!ai.reachable) return { state: 'warn', detail: 'The Ordinex backend is running, but Ollama is not reachable. Start Ollama.' };
+      if (!ai.modelInstalled) return { state: 'warn', detail: 'Ollama is running but the model "' + String(ai.model).slice(0, 40) + '" is not installed.' };
+      return { state: 'ok', detail: 'Backend and model "' + String(ai.model).slice(0, 40) + '" are ready' + (ai.loaded ? ' (' + ai.loaded.processor + ')' : ' (model idle)') + '.' };
+    } catch (e) {
+      return { state: 'error', detail: e && e.name === 'AbortError' ? 'The local backend did not answer within 4 seconds.' : 'The local backend could not be reached. Is it running and does it allow this page\'s origin?' };
+    } finally { clearTimeout(timer); }
+  }
+  window.runStatusChecks = async function () {
+    if (STATE.statusRunning) return;
+    STATE.statusRunning = true; if (STATE.appPage === 'status') render();
+    const out = {};
+    const u = fbAuth.currentUser;
+    out.auth = u ? { state: 'ok', detail: 'Signed in' + (u.emailVerified ? '; email verified.' : '; email is NOT verified.') } : { state: 'error', detail: 'No signed-in user.' };
+    try { const t0 = Date.now(); await fb.getDoc(fb.doc(fbDb, 'users', u.uid)); out.firestore = { state: 'ok', detail: 'Read your own profile in ' + (Date.now() - t0) + ' ms.' }; }
+    catch (e) { out.firestore = { state: 'error', detail: 'Read failed: ' + String((e && e.code) || 'unknown error').slice(0, 60) + '.' }; }
+    const cu = DB.currentUser || {};
+    out.org = cu.orgId ? { state: 'ok', detail: 'Organisation context present; role: ' + String(cu.role || 'user').replace('_', ' ') + '.' } : { state: 'warn', detail: 'This account does not belong to an organisation yet.' };
+    out.localAi = await checkLocalAi();
+    out.cloudAi = geminiConfig.allowCloud ? { state: 'warn', detail: 'Cloud AI is ENABLED in this build; documents may be sent to a cloud provider.' } : { state: 'ok', detail: 'Disabled. No cloud AI provider is used.' };
+    const n = (DB.regulations || []).length;
+    out.dataset = n ? { state: 'warn', detail: n + ' reference record(s), unverified paraphrased samples (not official legal text).' } : { state: 'notconnected', detail: 'No regulation records are loaded for your organisation.' };
+    out.platform = STATE.isPlatformAdmin === true ? { state: 'ok', detail: 'This account has platform-admin rights.' } : { state: 'na', detail: 'This account is not a platform administrator.' };
+    out.ranAt = new Date().toLocaleString();
+    STATE.statusChecks = out; STATE.statusRunning = false;
+    if (STATE.appPage === 'status') render();
   };
 
   // ---- Documents: no Cloud Storage on the free plan (see SETUP.md), so

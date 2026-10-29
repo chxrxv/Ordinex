@@ -103,3 +103,16 @@ If any step fails, stop and roll back (section 6) before investigating.
 ## 7. Known limits to carry into production use
 
 Hosted visitors still need a local install for AI; GDPR and DPDP source text is unverified; signed-in flows are tested against emulators with fake users, not against the live project; the HTTPS-hosted → local-backend connection is untested; organisation members can still resolve issues and create reports (documented product behaviour). Production use additionally needs monitoring, backup/restore, independent security testing and legal review of regulatory content.
+
+## Honest-product release (landing page, monitoring, System Status, Security & Audit)
+
+Changes: unverifiable landing claims removed (testimonials, SOC 2/ISO, "real-time", enterprise-only features); live-mode
+"Regulatory Monitoring" relabelled as sample reference records; new **System Status** and **Security & Audit** pages;
+CSV exports neutralise spreadsheet formulas; `auditLogs` create rule pins the entry shape (exact keys, bounded strings,
+status enum, server timestamp).
+
+Deploy scope: `firebase deploy --only firestore:rules,hosting --project ordinex-862ba` (rules changed). Never `npm run deploy`.
+Rules rollback: re-deploy the previous `firestore.rules` commit (the audit-shape rule is purely additive).
+
+Deliberately NOT built (reported, not faked): remediation owner/due-date workflow, notification delivery engine,
+organisation selector, regulatory-update ingestion, payments/subscriptions, OCR, verified GDPR/DPDP source text.
