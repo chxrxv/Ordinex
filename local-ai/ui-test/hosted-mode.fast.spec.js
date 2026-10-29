@@ -68,10 +68,11 @@ test('opted-in backend: connect, analyze a PDF cross-origin, results + downloads
 test('main app on a hosted origin: badge is RED until the user connects; never green on its own', async ({ page }) => {
   await page.goto(`${hosted.origin}/`);
   const badge = page.locator('#local-ai-badge');
-  await expect(badge).toContainText('Local AI not connected');
+  await expect(badge).toContainText('AI not set up');
   expect(await badge.evaluate((e) => e.style.background)).not.toContain('17, 107, 58');   // not the green state
   page.once('dialog', (d) => d.accept(allowed.base));
-  await badge.click();
+  await badge.click();                                                                     // opens the setup dialog (own key / local backend)
+  await page.getByRole('button', { name: 'Connect local backend' }).click();
   await expect(badge).toContainText('Local AI ready', { timeout: 15000 });
 });
 

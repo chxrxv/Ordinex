@@ -172,10 +172,3 @@ test('auditLogs create: forged timestamp, extra fields, bad status and oversized
   const { timestamp, ...noTs } = ok;
   await assertFails(addDoc(collection(b, 'auditLogs'), noTs));
 });
-
-test('aiUsage (hosted AI quota counters) is closed to every client, including its own owner', async () => {
-  const ref = doc(as('alice'), 'aiUsage', 'alice_20261029');
-  await assertFails(getDoc(ref));
-  await assertFails(setDoc(ref, { uid: 'alice', count: 0 }));
-  await assertFails(setDoc(doc(as('alice'), 'aiUsage', 'alice_20261030'), { uid: 'alice', count: 0 }));
-});

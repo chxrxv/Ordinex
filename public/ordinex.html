@@ -34784,11 +34784,18 @@ const localAIConfig = { baseUrl: '' };
   try { var u = new URL(localStorage.getItem('ordinex.localBackend') || ''); if ((u.protocol === 'http:' || u.protocol === 'https:') && LB.test(u.hostname)) localAIConfig.baseUrl = u.origin; } catch (e) { /* not connected */ }
 })();
 
-/* HOSTED AI: when the page is hosted and no local backend is connected, AI requests go to the `aiGenerate` Cloud Function
-   (functions/), which holds the Gemini key server-side. Keep enabled=false until that function is deployed (needs the Blaze
-   plan, see docs/HOSTED_AI.md); while false, the hosted site says plainly that AI needs a local backend. When true, document
-   text IS sent to Google Gemini through that function, and the Security page says so. */
-const hostedAI = { enabled: false };
+/* FREE HOSTED AI (no server, no paid plan): on the hosted site, when no local backend is connected, a user may paste THEIR OWN
+   free Google AI Studio key. It is kept only in this browser's localStorage, is never stored in Firestore or sent to Ordinex,
+   and calls go from the browser straight to Google's Gemini API under that user's own free quota. Document text is therefore
+   sent to Google (free-tier content may be used by Google to improve its products); the Security/Status pages say so.
+   A connected local backend always takes precedence and keeps text on the user's computer. */
+const USER_GEMINI_KEY_STORAGE = 'ordinex.userGeminiKey';
+const USER_GEMINI_KEY_RE = /^AIza[A-Za-z0-9_-]{30,60}$/;
+function getUserGeminiKey() { try { const k = localStorage.getItem(USER_GEMINI_KEY_STORAGE) || ''; return USER_GEMINI_KEY_RE.test(k) ? k : ''; } catch (e) { return ''; } }
+function setUserGeminiKey(k) { k = String(k || '').trim(); if (!USER_GEMINI_KEY_RE.test(k)) return false; try { localStorage.setItem(USER_GEMINI_KEY_STORAGE, k); return true; } catch (e) { return false; } }
+function clearUserGeminiKey() { try { localStorage.removeItem(USER_GEMINI_KEY_STORAGE); } catch (e) { /* ignore */ } }
+/* true when AI must come from the user's own Gemini key (hosted page, no local backend) */
+function usingUserGeminiKey() { return localAIConfig.baseUrl === null && !!getUserGeminiKey(); }
 
 const geminiConfig = {
   allowCloud: false,
@@ -37900,7 +37907,7 @@ function renderStatus(){
       ${row('Database (Firestore)','firestore','Whether your signed-in session can read your own profile under the security rules.')}
       ${row('Organisation context','org','The organisation and role this session operates under.')}
       ${row('Local AI backend and model','localAi','AI analysis runs on a backend you start on your own computer (Ollama). The hosted website cannot reach another person\'s computer, so this is "Not connected" until you run it locally and connect.', `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="document.getElementById('local-ai-badge') && document.getElementById('local-ai-badge').click()">Connect to my local backend</button>`)}
-      ${row('Cloud AI','cloudAi', hostedAI.enabled ? 'Hosted AI sends document text, through an Ordinex server function, to Google Gemini when no local backend is connected. The API key is never in the browser.' : 'Cloud AI providers are disabled; documents are not sent to a cloud model.')}
+      ${row('Your Gemini key','cloudAi','Optional. A free Google AI Studio key you add yourself; kept only in this browser. When used, document text is sent to Google Gemini. Ordinex has no AI server and no shared key.', `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="openAiSetup()">Set up AI</button>`)}
       ${row('Regulation reference data','dataset','Number of reference records visible to your organisation. They are paraphrased samples, not verified legal text.')}
       ${row('Platform administration','platform','Whether this account holds platform-admin rights. Granting them is a manual step done by the project owner.')}
     </tbody></table></div>
@@ -37955,7 +37962,7 @@ function renderSecurity(){
         <li>Invitations are single-use, expire, and require a verified email.</li>
         <li>Plan, seat and shared-regulation changes are limited to platform administrators.</li>
         <li>Audit entries are append-only and cannot be edited or deleted by users.</li>
-        <li>${hostedAI.enabled ? 'AI analysis: with no local backend connected, document text is sent through an Ordinex server function to Google Gemini (key kept server-side, signed-in members only, daily per-user limit). Connect a local backend to keep text on your computer.' : 'AI analysis runs locally; documents are not sent to a cloud model.'}</li>
+        <li>${usingUserGeminiKey() ? 'AI analysis: you are using your own Gemini key, so document text is sent to Google Gemini under your own account and quota. Connect a local backend to keep text on your computer.' : 'AI analysis runs on a backend on your computer; text is sent to Google Gemini only if you add your own key.'}</li>
       </ul>
     </div>
     <div class="glass" style="padding:22px;">
@@ -38335,7 +38342,7 @@ if (LIVE_MODE) {
   async function callLocalAI({ prompt, systemInstruction, jsonOutput = false, imageBase64 = null }) {
     if (imageBase64) throw new Error('Image OCR is not available in the local AI build — upload a text-based PDF, DOCX or TXT.');
     if (localAIConfig.baseUrl === null) {
-      if (hostedAI.enabled) return callHostedAI({ prompt, systemInstruction, jsonOutput });
+      if (getUserGeminiKey()) return callUserGemini({ prompt, systemInstruction, jsonOutput });
       throw new Error('Local AI is not connected. This hosted website cannot run AI by itself: start Ordinex on your computer ("npm run ai"), then use the "Connect local AI" button at the bottom right.');
     }
     let res;
@@ -38355,24 +38362,28 @@ if (LIVE_MODE) {
     return j.text;
   }
 
-  /** Hosted AI: the `aiGenerate` callable function (Gemini, key kept server-side). Uses the callable HTTP protocol directly so
-   * the bundled Firebase SDK needs no Functions module. The user's ID token authenticates the request. */
-  function hostedAIEndpoint() { return `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net/aiGenerate`; }
-  async function callHostedAI({ prompt, systemInstruction, jsonOutput = false }) {
-    const user = fbAuth.currentUser;
-    if (!user) throw new Error('Sign in to use AI analysis.');
+  /** Calls Gemini directly with the USER'S OWN free key (header, not URL; never logged). */
+  async function callUserGemini({ prompt, systemInstruction, jsonOutput = false }) {
+    const key = getUserGeminiKey();
+    if (!key) throw new Error('No personal Gemini key is set. Click the AI badge to add your free key.');
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2048, ...(jsonOutput ? { responseMimeType: 'application/json' } : {}) },
+    };
+    if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
     let res;
     try {
-      res = await fetch(hostedAIEndpoint(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await user.getIdToken()) },
-        body: JSON.stringify({ data: { prompt, systemInstruction: systemInstruction || '', jsonOutput: !!jsonOutput } }),
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiConfig.model}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body),
       });
-    } catch (e) { throw new Error('The hosted AI service could not be reached. Check your connection and try again.'); }
+    } catch (e) { throw new Error('Could not reach Google Gemini. Check your connection and try again.'); }
+    if (res.status === 400 || res.status === 403) throw new Error('Google rejected your Gemini key. Check it in the AI badge (it may be wrong, restricted or revoked).');
+    if (res.status === 429) throw new Error('Your free Gemini quota is used up for now. Wait a minute (or until tomorrow) and try again.');
+    if (!res.ok) throw new Error(`Google Gemini returned an error (${res.status}).`);
     const j = await res.json().catch(() => null);
-    if (!res.ok || !j || j.error) throw new Error((j && j.error && j.error.message) || `The hosted AI service returned an error (${res.status}).`);
-    const text = j.result && j.result.text;
-    if (typeof text !== 'string' || !text.trim()) throw new Error('The hosted AI service returned an empty answer; nothing was generated.');
+    const c = j && j.candidates && j.candidates[0];
+    const text = c && c.content && Array.isArray(c.content.parts) ? c.content.parts.map((x) => x.text || '').join('') : '';
+    if (!text.trim()) throw new Error('Gemini returned no answer for this request; nothing was generated.');
     return text;
   }
 
@@ -38549,7 +38560,7 @@ if (LIVE_MODE) {
   }
 
   async function runComplianceAnalysis(text, country, fileName) {
-    if (!geminiConfig.allowCloud && !(localAIConfig.baseUrl === null && hostedAI.enabled)) return runLocalComplianceAnalysis(text, country, fileName);
+    if (!geminiConfig.allowCloud && !usingUserGeminiKey()) return runLocalComplianceAnalysis(text, country, fileName);
     // Was never told which jurisdiction the document was tagged with, so
     // every country produced the same generic, non-jurisdiction-specific
     // analysis regardless of the country picked at upload time.
@@ -39344,15 +39355,42 @@ ${text.slice(0, 15000)}
       return { state: 'error', detail: e && e.name === 'AbortError' ? 'The local backend did not answer within 4 seconds.' : 'The local backend could not be reached. Is it running and does it allow this page\'s origin?' };
     } finally { clearTimeout(timer); }
   }
-  // Real probe without spending AI quota: an unauthenticated POST must be answered by the deployed function with UNAUTHENTICATED.
-  async function checkHostedAi() {
+  // Real probe that spends no generation quota: listing one model with the user's key.
+  async function checkUserGeminiKey() {
+    const key = getUserGeminiKey();
+    if (!key) return { state: 'notconnected', detail: 'No personal Gemini key set. Optional: add one to get AI analysis without running anything on your computer.' };
     try {
-      const res = await fetch(hostedAIEndpoint(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: {} }) });
-      const j = await res.json().catch(() => null);
-      if (j && j.error && j.error.status === 'UNAUTHENTICATED') return { state: 'ok', detail: 'Hosted AI service is deployed and answering. Document text is sent to Google Gemini through it.' };
-      return { state: 'error', detail: 'The hosted AI service did not answer as expected (HTTP ' + res.status + ').' };
-    } catch (e) { return { state: 'error', detail: 'The hosted AI service could not be reached.' }; }
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { headers: { 'x-goog-api-key': key } });
+      if (res.ok) return { state: 'ok', detail: 'Your key works. Document text is sent to Google Gemini under your own free quota when no local backend is connected.' };
+      return { state: 'error', detail: res.status === 400 || res.status === 403 ? 'Google rejected the key (wrong, restricted or revoked).' : 'Google returned HTTP ' + res.status + '.' };
+    } catch (e) { return { state: 'error', detail: 'Could not reach Google Gemini.' }; }
   }
+  window.openAiSetup = function () {
+    const has = !!getUserGeminiKey();
+    openModal(`
+      <div style="display:flex; justify-content:space-between; margin-bottom:14px;"><h3 style="font-size:19px; font-weight:800;">Set up AI analysis</h3><button class="icon-btn" aria-label="Close" onclick="closeModal()">${icon('x',18)}</button></div>
+      <p style="font-size:13.5px; color:var(--text-2); line-height:1.6; margin-bottom:14px;">Ordinex has no AI server of its own, so AI runs either on <b>your computer</b> or with <b>your own free Gemini key</b>.</p>
+      <div class="glass" style="padding:16px; margin-bottom:14px;">
+        <div style="font-weight:700; margin-bottom:6px;">Option 1: your own free Gemini key</div>
+        <ol style="margin:0 0 10px; padding-left:18px; font-size:13px; color:var(--text-2); line-height:1.6;"><li>Open <b>aistudio.google.com/apikey</b> and create a free key.</li><li>Paste it below. It is stored only in this browser.</li></ol>
+        <input id="userGeminiKeyInput" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="${has ? 'A key is saved. Paste a new one to replace it.' : 'Paste your Gemini API key'}" style="width:100%; margin-bottom:10px;" />
+        <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-primary" onclick="saveUserGeminiKeyFromModal()">Save key</button>${has ? `<button class="btn btn-ghost" onclick="clearUserGeminiKey(); closeModal(); toast('Your Gemini key was removed from this browser.','info'); window.__refreshAiBadge && window.__refreshAiBadge();">Remove key</button>` : ''}</div>
+        <p style="font-size:12px; color:var(--text-3); margin-top:10px; line-height:1.5;"><b>Privacy:</b> with a key, document text is sent to Google Gemini under your own account. Free-tier content may be used by Google to improve its products. Do not upload anything you are not allowed to share with Google.</p>
+      </div>
+      <div class="glass" style="padding:16px;">
+        <div style="font-weight:700; margin-bottom:6px;">Option 2: a backend on your computer</div>
+        <p style="font-size:13px; color:var(--text-2); line-height:1.6; margin:0 0 10px;">Text stays on your machine. Run <b>npm run ai</b> (Ollama required), then connect.</p>
+        <button class="btn btn-ghost" onclick="closeModal(); window.__connectLocalBackend && window.__connectLocalBackend();">Connect local backend</button>
+      </div>`);
+  };
+  window.saveUserGeminiKeyFromModal = function () {
+    const el = document.getElementById('userGeminiKeyInput');
+    const v = el ? el.value.trim() : '';
+    if (!setUserGeminiKey(v)) { toast('That does not look like a Gemini API key (it starts with "AIza").', 'warning', 'Invalid key'); return; }
+    closeModal(); toast('Key saved in this browser. AI analysis is now available.', 'success', 'AI ready');
+    if (window.__refreshAiBadge) window.__refreshAiBadge();
+    STATE.statusChecks = null;
+  };
   window.runStatusChecks = async function () {
     if (STATE.statusRunning) return;
     STATE.statusRunning = true; if (STATE.appPage === 'status') render();
@@ -39364,7 +39402,8 @@ ${text.slice(0, 15000)}
     const cu = DB.currentUser || {};
     out.org = cu.orgId ? { state: 'ok', detail: 'Organisation context present; role: ' + String(cu.role || 'user').replace('_', ' ') + '.' } : { state: 'warn', detail: 'This account does not belong to an organisation yet.' };
     out.localAi = await checkLocalAi();
-    out.cloudAi = hostedAI.enabled ? await checkHostedAi() : geminiConfig.allowCloud ? { state: 'warn', detail: 'Cloud AI is ENABLED in this build; documents may be sent to a cloud provider.' } : { state: 'ok', detail: 'Disabled. No cloud AI provider is used.' };
+    out.cloudAi = await checkUserGeminiKey();
+    if (geminiConfig.allowCloud) out.cloudAi = { state: 'warn', detail: 'A shared cloud key is ENABLED in this build; documents may be sent to a cloud provider.' };
     const n = (DB.regulations || []).length;
     out.dataset = n ? { state: 'warn', detail: n + ' reference record(s), unverified paraphrased samples (not official legal text).' } : { state: 'notconnected', detail: 'No regulation records are loaded for your organisation.' };
     out.platform = STATE.isPlatformAdmin === true ? { state: 'ok', detail: 'This account has platform-admin rights.' } : { state: 'na', detail: 'This account is not a platform administrator.' };
@@ -39399,8 +39438,9 @@ ${text.slice(0, 15000)}
     if (!country || !domain) { toast('Select a jurisdiction and domain before uploading.', 'warning'); return; }
     // Analysis runs on a backend on the USER'S OWN computer. On the hosted site it is not connected until they start it, so
     // uploading now would only create a document that can never be analysed. Say so up front instead.
-    if (localAIConfig.baseUrl === null && !hostedAI.enabled) {
-      toast('AI analysis is not connected. This website cannot run AI itself: start Ordinex on your computer (npm run ai) and click the red AI badge to connect, then upload again. Nothing was uploaded.', 'warning', 'AI not connected');
+    if (localAIConfig.baseUrl === null && !getUserGeminiKey()) {
+      toast('AI analysis is not set up. Click the AI badge (bottom right) to add your own free Gemini key, or connect a local backend, then upload again. Nothing was uploaded.', 'warning', 'AI not set up');
+      if (window.openAiSetup) window.openAiSetup();
       return;
     }
     closeModal();
@@ -40264,8 +40304,8 @@ render();
   function base() { return localAIConfig.baseUrl; }
   function paint(color, text) { el.style.background = color; el.textContent = text; }
   function refresh() {
-    if (base() === null && hostedAI.enabled) { paint('#1f4e8c', 'Hosted AI enabled — document text is sent to Google Gemini via Ordinex servers. Click to use a local backend instead.'); return; }
-    if (base() === null) { paint('#8a1c1c', 'Local AI not connected — this website cannot run AI itself. Click to connect to Ordinex on your computer.'); return; }
+    if (base() === null && getUserGeminiKey()) { paint('#1f4e8c', 'AI: your own Gemini key — document text is sent to Google. Click to change.'); return; }
+    if (base() === null) { paint('#8a1c1c', 'AI not set up — click to add your own free Gemini key or connect a local backend.'); return; }
     fetch(base() + '/api/health').then(function (r) { return r.json(); }).then(function (h) {
       if (h.backend !== 'ok') throw new Error('not ordinex');
       var ai = h.ai || {};
@@ -40273,8 +40313,8 @@ render();
       else paint('#8a1c1c', 'AI analysis unavailable — ' + (!ai.reachable ? 'Ollama is not running' : 'model ' + ai.model + ' is not installed'));
     }).catch(function () { paint('#8a1c1c', 'AI analysis unavailable — Ordinex backend not reachable (run "npm run ai")'); });
   }
-  el.addEventListener('click', function () {
-    if (base() === null || el.style.background === 'rgb(138, 28, 28)' && !LB.test(location.hostname)) {
+  window.__refreshAiBadge = refresh;
+  window.__connectLocalBackend = function () {
       var v = window.prompt('Address of the Ordinex backend running on YOUR computer (loopback only):', 'http://127.0.0.1:8787');
       if (!v) return;
       try {
@@ -40283,8 +40323,11 @@ render();
         localAIConfig.baseUrl = u.origin;
         try { localStorage.setItem('ordinex.localBackend', u.origin); } catch (e) { /* ignore */ }
       } catch (e) { window.alert('That is not a valid address.'); return; }
-      refresh(); return;
-    }
+      refresh();
+  };
+  el.addEventListener('click', function () {
+    if (base() === null) { if (window.openAiSetup) window.openAiSetup(); return; }
+    if (el.style.background === 'rgb(138, 28, 28)' && !LB.test(location.hostname)) { window.__connectLocalBackend(); return; }
     if (window.__lastAssessmentId) window.open(base() + '/api/assessments/' + window.__lastAssessmentId + '/report?format=html', '_blank', 'noopener'); else refresh();
   });
   refresh(); setInterval(refresh, 30000);

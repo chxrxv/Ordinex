@@ -70,7 +70,7 @@ test('signed-in pages: monitoring is honest, status and security pages reflect t
   await expect(page.locator('[data-status-key="firestore"]')).toContainText('Operational');
   // the hosted-style page has no local backend configured: must NOT read as healthy
   await expect(page.locator('[data-status-key="localAi"]')).not.toContainText('Operational');
-  await expect(page.locator('[data-status-key="cloudAi"]')).toContainText('Operational');
+  await expect(page.locator('[data-status-key="cloudAi"]')).toContainText('Not connected');
   await expect(page.locator('[data-status-key="platform"]')).toContainText('Not applicable');
 
   await page.locator('.sb-item', { hasText: 'Security & Audit' }).first().click();
@@ -130,19 +130,20 @@ test('failed analysis shows the real error (no endless spinner); upload is refus
     }
     return handleUpload([new File(['hello world, this is a policy document'], 'a.txt', { type: 'text/plain' })]);
   });
-  await expect(page.locator('body')).toContainText('AI analysis is not connected', { timeout: 5000 });
+  await expect(page.locator('body')).toContainText('AI analysis is not set up', { timeout: 5000 });
   expect(await page.evaluate(() => DB.documents.length)).toBe(before);
 });
 
-test('hosted AI (when enabled): upload is analysed through the server function with the user token, and the UI says text goes to Gemini', async ({ page }) => {
+const FAKE_KEY = 'AIza' + 'x'.repeat(35);
+test('own free Gemini key: setup modal stores it locally, upload is analysed directly via Gemini with the key in a header, UI discloses Google', async ({ page }) => {
   const g = await wire(page);
   const calls = [];
-  await page.route('**/*.cloudfunctions.net/aiGenerate', async (route) => {
-    const req = route.request();
-    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST,OPTIONS' } });
-    calls.push({ auth: req.headers()['authorization'] || '', body: JSON.parse(req.postData() || '{}') });
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    const req = route.request(); const cors = { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    calls.push({ url: req.url(), key: req.headers()['x-goog-api-key'] || '', body: req.postData() || '' });
     const text = JSON.stringify({ domain: 'Data Privacy', score: 62, gaps: [{ title: 'No retention period', severity: 'High', description: 'Retention is not stated.', recommendation: 'State a retention period.' }] });
-    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': app.origin }, body: JSON.stringify({ result: { text } }) });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }) });
   });
   await page.goto(app.origin + '/');
   await page.getByText('Sign In', { exact: true }).first().click();
@@ -151,18 +152,34 @@ test('hosted AI (when enabled): upload is analysed through the server function w
   await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(1500);
 
+  await page.evaluate(() => { localStorage.removeItem('ordinex.userGeminiKey'); localAIConfig.baseUrl = null; });   // as on the hosted site
+  await page.locator('#local-ai-badge').click();                                       // nothing set up: badge opens the setup dialog
+  await expect(page.locator('body')).toContainText('Set up AI analysis');
+  await page.locator('#userGeminiKeyInput').fill('not-a-key');
+  await page.getByRole('button', { name: 'Save key' }).click();
+  await expect(page.locator('body')).toContainText('does not look like a Gemini API key');
+  await page.locator('#userGeminiKeyInput').fill(FAKE_KEY);
+  await page.getByRole('button', { name: 'Save key' }).click();
+  await expect(page.locator('#local-ai-badge')).toContainText('your own Gemini key');
+  expect(await page.evaluate(() => localStorage.getItem('ordinex.userGeminiKey'))).toBe(FAKE_KEY);
+
   await page.evaluate(() => {
-    hostedAI.enabled = true; localAIConfig.baseUrl = null;           // as on the hosted site
     for (const [id, v] of [['uploadCountry', 'United States'], ['uploadDomain', 'Data Privacy']]) { const s = document.createElement('select'); s.id = id; s.innerHTML = `<option value="${v}">${v}</option>`; s.value = v; document.body.appendChild(s); }
     return handleUpload([new File(['Our privacy policy. We collect names and emails and keep them as long as we like. We share data with partners.'], 'policy.txt', { type: 'text/plain' })]);
   });
-  await expect.poll(() => calls.length, { timeout: 15000 }).toBeGreaterThan(0);
-  expect(calls[0].auth).toMatch(/^Bearer .{20,}/);
-  expect(calls[0].body.data.prompt).toContain('privacy policy');
+  await expect.poll(() => calls.filter((c) => c.url.includes(':generateContent')).length, { timeout: 15000 }).toBeGreaterThan(0);
+  const gen = calls.find((c) => c.url.includes(':generateContent'));
+  expect(gen.key).toBe(FAKE_KEY);                                  // key travels in a header...
+  expect(gen.url).not.toContain(FAKE_KEY);                         // ...never in the URL
+  expect(gen.body).toContain('privacy policy');
   await expect.poll(async () => page.evaluate(() => (DB.documents.find((d) => d.name === 'policy.txt') || {}).status), { timeout: 15000 }).toBe('analyzed');
   expect(await page.evaluate(() => DB.documents.find((d) => d.name === 'policy.txt').gaps.length)).toBeGreaterThan(0);
 
+  // the key is never written to Firestore
+  const dump = JSON.stringify(await (await fetch(`${FS}/v1/projects/${PROJECT}/databases/(default)/documents/users?pageSize=100`, { headers: { Authorization: 'Bearer owner' } })).json());
+  expect(dump).not.toContain(FAKE_KEY);
+
   await page.locator('.sb-item', { hasText: 'Security & Audit' }).first().click();
-  await expect(page.locator('body')).toContainText('sent through an Ordinex server function to Google Gemini');
-  expect(g.prodHits.filter((h) => !/cloudfunctions/.test(h))).toEqual([]);
+  await expect(page.locator('body')).toContainText('document text is sent to Google Gemini under your own account');
+  expect(g.prodHits.filter((h) => !/generativelanguage/.test(h))).toEqual([]);
 });
