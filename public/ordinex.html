@@ -34790,7 +34790,8 @@ const localAIConfig = { baseUrl: '' };
    sent to Google (free-tier content may be used by Google to improve its products); the Security/Status pages say so.
    A connected local backend always takes precedence and keeps text on the user's computer. */
 const USER_GEMINI_KEY_STORAGE = 'ordinex.userGeminiKey';
-const USER_GEMINI_KEY_RE = /^AIza[A-Za-z0-9_-]{30,60}$/;
+// Google issues keys in more than one shape ("AIza..." and the newer "AQ...."), so validate only the safe charset and a sane length.
+const USER_GEMINI_KEY_RE = /^[A-Za-z0-9_.-]{20,140}$/;
 function getUserGeminiKey() { try { const k = localStorage.getItem(USER_GEMINI_KEY_STORAGE) || ''; return USER_GEMINI_KEY_RE.test(k) ? k : ''; } catch (e) { return ''; } }
 function setUserGeminiKey(k) { k = String(k || '').trim(); if (!USER_GEMINI_KEY_RE.test(k)) return false; try { localStorage.setItem(USER_GEMINI_KEY_STORAGE, k); return true; } catch (e) { return false; } }
 function clearUserGeminiKey() { try { localStorage.removeItem(USER_GEMINI_KEY_STORAGE); } catch (e) { /* ignore */ } }
@@ -39386,7 +39387,7 @@ ${text.slice(0, 15000)}
   window.saveUserGeminiKeyFromModal = function () {
     const el = document.getElementById('userGeminiKeyInput');
     const v = el ? el.value.trim() : '';
-    if (!setUserGeminiKey(v)) { toast('That does not look like a Gemini API key (it starts with "AIza").', 'warning', 'Invalid key'); return; }
+    if (!setUserGeminiKey(v)) { toast('That does not look like a Gemini API key (20+ letters, digits, dots, dashes or underscores, no spaces).', 'warning', 'Invalid key'); return; }
     closeModal(); toast('Key saved in this browser. AI analysis is now available.', 'success', 'AI ready');
     if (window.__refreshAiBadge) window.__refreshAiBadge();
     STATE.statusChecks = null;

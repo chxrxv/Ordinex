@@ -134,7 +134,7 @@ test('failed analysis shows the real error (no endless spinner); upload is refus
   expect(await page.evaluate(() => DB.documents.length)).toBe(before);
 });
 
-const FAKE_KEY = 'AIza' + 'x'.repeat(35);
+const FAKE_KEY = 'AQ.' + 'x'.repeat(40);        // newer Google key shape; AIza-style keys use the same code path
 test('own free Gemini key: setup modal stores it locally, upload is analysed directly via Gemini with the key in a header, UI discloses Google', async ({ page }) => {
   const g = await wire(page);
   const calls = [];
@@ -155,7 +155,7 @@ test('own free Gemini key: setup modal stores it locally, upload is analysed dir
   await page.evaluate(() => { localStorage.removeItem('ordinex.userGeminiKey'); localAIConfig.baseUrl = null; });   // as on the hosted site
   await page.locator('#local-ai-badge').click();                                       // nothing set up: badge opens the setup dialog
   await expect(page.locator('body')).toContainText('Set up AI analysis');
-  await page.locator('#userGeminiKeyInput').fill('not-a-key');
+  await page.locator('#userGeminiKeyInput').fill('has spaces in it, not a key');
   await page.getByRole('button', { name: 'Save key' }).click();
   await expect(page.locator('body')).toContainText('does not look like a Gemini API key');
   await page.locator('#userGeminiKeyInput').fill(FAKE_KEY);
