@@ -7,6 +7,7 @@
     "deploy": "bash scripts/deploy.sh",
     "emulate": "firebase emulators:start",
     "ai": "node local-ai/src/server.js",
+    "worker:test": "node --test worker/test/proxy.test.js",
     "ai:test": "node --test local-ai/test/core.test.js local-ai/test/rest.test.js",
     "ai:eval": "node local-ai/eval/run-eval.js",
     "ai:doctor": "node local-ai/src/doctor.js",

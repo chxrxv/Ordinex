@@ -270,3 +270,55 @@ test('toasts are never hidden under the fixed AI badge or the local-assessment l
   });
   expect(boxes.toast.bottom, 'toast overlaps the AI badge').toBeLessThanOrEqual(Math.min(boxes.badge.top, boxes.link.top));
 });
+
+test('shared hosted AI proxy: no user key needed; upload is analysed with the Firebase token; own key takes precedence; status and security say so', async ({ page }) => {
+  const g = await wire(page);
+  const WORKER = 'https://ordinex-ai.example.workers.dev';
+  const proxyCalls = [], geminiCalls = [];
+  const analysis = JSON.stringify({ domain: 'Data Privacy', score: 55, gaps: [{ title: 'No retention period', severity: 'High', description: 'd', recommendation: 'r' }] });
+  await page.route('**/ordinex-ai.example.workers.dev/**', async (route) => {
+    const req = route.request(); const cors = { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (req.url().endsWith('/health')) return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ ok: true }) });
+    proxyCalls.push({ auth: req.headers()['authorization'] || '', body: JSON.parse(req.postData() || '{}') });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ text: analysis }) });
+  });
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    const req = route.request(); const cors = { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    geminiCalls.push(req.url());
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text: analysis }] } }] }) });
+  });
+  await page.goto(app.origin + '/');
+  await page.getByText('Sign In', { exact: true }).first().click();
+  await page.locator('#authEmail').fill(USER.email); await page.locator('#authPass').fill(USER.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  await page.evaluate((u) => { localStorage.removeItem('ordinex.userGeminiKey'); localAIConfig.baseUrl = null; hostedAIProxy.url = u; window.__refreshAiBadge(); }, WORKER);
+  await expect(page.locator('#local-ai-badge')).toContainText('AI: hosted');
+  await page.evaluate(() => {
+    for (const [id, v] of [['uploadCountry', 'United States'], ['uploadDomain', 'Data Privacy']]) { const s = document.createElement('select'); s.id = id; s.innerHTML = `<option value="${v}">${v}</option>`; s.value = v; document.body.appendChild(s); }
+    return handleUpload([new File(['Our privacy policy. We keep personal data forever and share it with partners.'], 'proxy-policy.txt', { type: 'text/plain' })]);
+  });
+  await expect.poll(async () => page.evaluate(() => (DB.documents.find((d) => d.name === 'proxy-policy.txt') || {}).status), { timeout: 15000 }).toBe('analyzed');
+  expect(proxyCalls.length).toBeGreaterThan(0);
+  expect(proxyCalls[0].auth).toMatch(/^Bearer .{20,}/);                    // the Firebase ID token, not a Gemini key
+  expect(proxyCalls[0].body.prompt).toContain('privacy policy');
+  expect(geminiCalls).toEqual([]);                                         // nothing went to Google directly
+
+  // a user who adds their own key uses THEIR quota instead of the shared proxy
+  const before = proxyCalls.length;
+  await page.evaluate(() => { localStorage.setItem('ordinex.userGeminiKey', 'AQ.' + 'k'.repeat(40)); });
+  await page.evaluate(() => handleUpload([new File(['Second policy text with enough characters to analyse properly.'], 'own-key.txt', { type: 'text/plain' })]));
+  await expect.poll(() => geminiCalls.filter((u) => u.includes(':generateContent')).length, { timeout: 15000 }).toBeGreaterThan(0);
+  expect(proxyCalls.length).toBe(before);
+
+  await page.evaluate(() => localStorage.removeItem('ordinex.userGeminiKey'));
+  await page.locator('.sb-item', { hasText: 'System Status' }).first().click();
+  await expect(page.locator('[data-status-key="hostedAi"]')).toContainText('Operational', { timeout: 15000 });
+  await page.locator('.sb-item', { hasText: 'Security & Audit' }).first().click();
+  await expect(page.locator('body')).toContainText('through the Ordinex AI proxy to Google Gemini');
+  expect(g.prodHits.filter((h) => !/generativelanguage/.test(h))).toEqual([]);
+});

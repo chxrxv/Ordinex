@@ -1,0 +1,11 @@
+name = "ordinex-ai"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+workers_dev = true
+
+# Run `npx wrangler kv namespace create QUOTA` once and paste the printed id here (see docs/FREE_HOSTED_AI.md).
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# The Gemini key is NOT stored here. Set it with: npx wrangler secret put GEMINI_API_KEY

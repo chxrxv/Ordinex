@@ -1,0 +1,7 @@
+{
+  "name": "ordinex-ai-proxy",
+  "private": true,
+  "type": "module",
+  "description": "Free Cloudflare Worker proxy for Ordinex hosted AI (see docs/FREE_HOSTED_AI.md)",
+  "scripts": { "test": "node --test test/proxy.test.js" }
+}
