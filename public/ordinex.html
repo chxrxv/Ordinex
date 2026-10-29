@@ -34784,6 +34784,12 @@ const localAIConfig = { baseUrl: '' };
   try { var u = new URL(localStorage.getItem('ordinex.localBackend') || ''); if ((u.protocol === 'http:' || u.protocol === 'https:') && LB.test(u.hostname)) localAIConfig.baseUrl = u.origin; } catch (e) { /* not connected */ }
 })();
 
+/* HOSTED AI: when the page is hosted and no local backend is connected, AI requests go to the `aiGenerate` Cloud Function
+   (functions/), which holds the Gemini key server-side. Keep enabled=false until that function is deployed (needs the Blaze
+   plan, see docs/HOSTED_AI.md); while false, the hosted site says plainly that AI needs a local backend. When true, document
+   text IS sent to Google Gemini through that function, and the Security page says so. */
+const hostedAI = { enabled: false };
+
 const geminiConfig = {
   allowCloud: false,
   apiKey: "",
@@ -37894,7 +37900,7 @@ function renderStatus(){
       ${row('Database (Firestore)','firestore','Whether your signed-in session can read your own profile under the security rules.')}
       ${row('Organisation context','org','The organisation and role this session operates under.')}
       ${row('Local AI backend and model','localAi','AI analysis runs on a backend you start on your own computer (Ollama). The hosted website cannot reach another person\'s computer, so this is "Not connected" until you run it locally and connect.', `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="document.getElementById('local-ai-badge') && document.getElementById('local-ai-badge').click()">Connect to my local backend</button>`)}
-      ${row('Cloud AI','cloudAi','Cloud AI providers are disabled by design; documents are not sent to a cloud model.')}
+      ${row('Cloud AI','cloudAi', hostedAI.enabled ? 'Hosted AI sends document text, through an Ordinex server function, to Google Gemini when no local backend is connected. The API key is never in the browser.' : 'Cloud AI providers are disabled; documents are not sent to a cloud model.')}
       ${row('Regulation reference data','dataset','Number of reference records visible to your organisation. They are paraphrased samples, not verified legal text.')}
       ${row('Platform administration','platform','Whether this account holds platform-admin rights. Granting them is a manual step done by the project owner.')}
     </tbody></table></div>
@@ -37949,7 +37955,7 @@ function renderSecurity(){
         <li>Invitations are single-use, expire, and require a verified email.</li>
         <li>Plan, seat and shared-regulation changes are limited to platform administrators.</li>
         <li>Audit entries are append-only and cannot be edited or deleted by users.</li>
-        <li>AI analysis runs locally; documents are not sent to a cloud model.</li>
+        <li>${hostedAI.enabled ? 'AI analysis: with no local backend connected, document text is sent through an Ordinex server function to Google Gemini (key kept server-side, signed-in members only, daily per-user limit). Connect a local backend to keep text on your computer.' : 'AI analysis runs locally; documents are not sent to a cloud model.'}</li>
       </ul>
     </div>
     <div class="glass" style="padding:22px;">
@@ -38328,7 +38334,10 @@ if (LIVE_MODE) {
    * return shape as callGemini so existing callers are unchanged. */
   async function callLocalAI({ prompt, systemInstruction, jsonOutput = false, imageBase64 = null }) {
     if (imageBase64) throw new Error('Image OCR is not available in the local AI build — upload a text-based PDF, DOCX or TXT.');
-    if (localAIConfig.baseUrl === null) throw new Error('Local AI is not connected. This hosted website cannot run AI by itself: start Ordinex on your computer ("npm run ai"), then use the "Connect local AI" button at the bottom right.');
+    if (localAIConfig.baseUrl === null) {
+      if (hostedAI.enabled) return callHostedAI({ prompt, systemInstruction, jsonOutput });
+      throw new Error('Local AI is not connected. This hosted website cannot run AI by itself: start Ordinex on your computer ("npm run ai"), then use the "Connect local AI" button at the bottom right.');
+    }
     let res;
     try {
       res = await fetch(localAIConfig.baseUrl + '/api/ai/generate', {
@@ -38344,6 +38353,27 @@ if (LIVE_MODE) {
     if (!res.ok) throw new Error(j.error || `Local AI error (${res.status}).`);
     if (typeof j.text !== 'string' || !j.text.trim()) throw new Error('The local model returned an empty answer; nothing was generated.');
     return j.text;
+  }
+
+  /** Hosted AI: the `aiGenerate` callable function (Gemini, key kept server-side). Uses the callable HTTP protocol directly so
+   * the bundled Firebase SDK needs no Functions module. The user's ID token authenticates the request. */
+  function hostedAIEndpoint() { return `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net/aiGenerate`; }
+  async function callHostedAI({ prompt, systemInstruction, jsonOutput = false }) {
+    const user = fbAuth.currentUser;
+    if (!user) throw new Error('Sign in to use AI analysis.');
+    let res;
+    try {
+      res = await fetch(hostedAIEndpoint(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await user.getIdToken()) },
+        body: JSON.stringify({ data: { prompt, systemInstruction: systemInstruction || '', jsonOutput: !!jsonOutput } }),
+      });
+    } catch (e) { throw new Error('The hosted AI service could not be reached. Check your connection and try again.'); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok || !j || j.error) throw new Error((j && j.error && j.error.message) || `The hosted AI service returned an error (${res.status}).`);
+    const text = j.result && j.result.text;
+    if (typeof text !== 'string' || !text.trim()) throw new Error('The hosted AI service returned an empty answer; nothing was generated.');
+    return text;
   }
 
   const COUNTRY_TO_JURISDICTION = {
@@ -38519,7 +38549,7 @@ if (LIVE_MODE) {
   }
 
   async function runComplianceAnalysis(text, country, fileName) {
-    if (!geminiConfig.allowCloud) return runLocalComplianceAnalysis(text, country, fileName);
+    if (!geminiConfig.allowCloud && !(localAIConfig.baseUrl === null && hostedAI.enabled)) return runLocalComplianceAnalysis(text, country, fileName);
     // Was never told which jurisdiction the document was tagged with, so
     // every country produced the same generic, non-jurisdiction-specific
     // analysis regardless of the country picked at upload time.
@@ -39314,6 +39344,15 @@ ${text.slice(0, 15000)}
       return { state: 'error', detail: e && e.name === 'AbortError' ? 'The local backend did not answer within 4 seconds.' : 'The local backend could not be reached. Is it running and does it allow this page\'s origin?' };
     } finally { clearTimeout(timer); }
   }
+  // Real probe without spending AI quota: an unauthenticated POST must be answered by the deployed function with UNAUTHENTICATED.
+  async function checkHostedAi() {
+    try {
+      const res = await fetch(hostedAIEndpoint(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: {} }) });
+      const j = await res.json().catch(() => null);
+      if (j && j.error && j.error.status === 'UNAUTHENTICATED') return { state: 'ok', detail: 'Hosted AI service is deployed and answering. Document text is sent to Google Gemini through it.' };
+      return { state: 'error', detail: 'The hosted AI service did not answer as expected (HTTP ' + res.status + ').' };
+    } catch (e) { return { state: 'error', detail: 'The hosted AI service could not be reached.' }; }
+  }
   window.runStatusChecks = async function () {
     if (STATE.statusRunning) return;
     STATE.statusRunning = true; if (STATE.appPage === 'status') render();
@@ -39325,7 +39364,7 @@ ${text.slice(0, 15000)}
     const cu = DB.currentUser || {};
     out.org = cu.orgId ? { state: 'ok', detail: 'Organisation context present; role: ' + String(cu.role || 'user').replace('_', ' ') + '.' } : { state: 'warn', detail: 'This account does not belong to an organisation yet.' };
     out.localAi = await checkLocalAi();
-    out.cloudAi = geminiConfig.allowCloud ? { state: 'warn', detail: 'Cloud AI is ENABLED in this build; documents may be sent to a cloud provider.' } : { state: 'ok', detail: 'Disabled. No cloud AI provider is used.' };
+    out.cloudAi = hostedAI.enabled ? await checkHostedAi() : geminiConfig.allowCloud ? { state: 'warn', detail: 'Cloud AI is ENABLED in this build; documents may be sent to a cloud provider.' } : { state: 'ok', detail: 'Disabled. No cloud AI provider is used.' };
     const n = (DB.regulations || []).length;
     out.dataset = n ? { state: 'warn', detail: n + ' reference record(s), unverified paraphrased samples (not official legal text).' } : { state: 'notconnected', detail: 'No regulation records are loaded for your organisation.' };
     out.platform = STATE.isPlatformAdmin === true ? { state: 'ok', detail: 'This account has platform-admin rights.' } : { state: 'na', detail: 'This account is not a platform administrator.' };
@@ -39360,7 +39399,7 @@ ${text.slice(0, 15000)}
     if (!country || !domain) { toast('Select a jurisdiction and domain before uploading.', 'warning'); return; }
     // Analysis runs on a backend on the USER'S OWN computer. On the hosted site it is not connected until they start it, so
     // uploading now would only create a document that can never be analysed. Say so up front instead.
-    if (localAIConfig.baseUrl === null) {
+    if (localAIConfig.baseUrl === null && !hostedAI.enabled) {
       toast('AI analysis is not connected. This website cannot run AI itself: start Ordinex on your computer (npm run ai) and click the red AI badge to connect, then upload again. Nothing was uploaded.', 'warning', 'AI not connected');
       return;
     }
@@ -40225,6 +40264,7 @@ render();
   function base() { return localAIConfig.baseUrl; }
   function paint(color, text) { el.style.background = color; el.textContent = text; }
   function refresh() {
+    if (base() === null && hostedAI.enabled) { paint('#1f4e8c', 'Hosted AI enabled — document text is sent to Google Gemini via Ordinex servers. Click to use a local backend instead.'); return; }
     if (base() === null) { paint('#8a1c1c', 'Local AI not connected — this website cannot run AI itself. Click to connect to Ordinex on your computer.'); return; }
     fetch(base() + '/api/health').then(function (r) { return r.json(); }).then(function (h) {
       if (h.backend !== 'ok') throw new Error('not ordinex');

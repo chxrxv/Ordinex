@@ -133,3 +133,36 @@ test('failed analysis shows the real error (no endless spinner); upload is refus
   await expect(page.locator('body')).toContainText('AI analysis is not connected', { timeout: 5000 });
   expect(await page.evaluate(() => DB.documents.length)).toBe(before);
 });
+
+test('hosted AI (when enabled): upload is analysed through the server function with the user token, and the UI says text goes to Gemini', async ({ page }) => {
+  const g = await wire(page);
+  const calls = [];
+  await page.route('**/*.cloudfunctions.net/aiGenerate', async (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST,OPTIONS' } });
+    calls.push({ auth: req.headers()['authorization'] || '', body: JSON.parse(req.postData() || '{}') });
+    const text = JSON.stringify({ domain: 'Data Privacy', score: 62, gaps: [{ title: 'No retention period', severity: 'High', description: 'Retention is not stated.', recommendation: 'State a retention period.' }] });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': app.origin }, body: JSON.stringify({ result: { text } }) });
+  });
+  await page.goto(app.origin + '/');
+  await page.getByText('Sign In', { exact: true }).first().click();
+  await page.locator('#authEmail').fill(USER.email); await page.locator('#authPass').fill(USER.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  await page.evaluate(() => {
+    hostedAI.enabled = true; localAIConfig.baseUrl = null;           // as on the hosted site
+    for (const [id, v] of [['uploadCountry', 'United States'], ['uploadDomain', 'Data Privacy']]) { const s = document.createElement('select'); s.id = id; s.innerHTML = `<option value="${v}">${v}</option>`; s.value = v; document.body.appendChild(s); }
+    return handleUpload([new File(['Our privacy policy. We collect names and emails and keep them as long as we like. We share data with partners.'], 'policy.txt', { type: 'text/plain' })]);
+  });
+  await expect.poll(() => calls.length, { timeout: 15000 }).toBeGreaterThan(0);
+  expect(calls[0].auth).toMatch(/^Bearer .{20,}/);
+  expect(calls[0].body.data.prompt).toContain('privacy policy');
+  await expect.poll(async () => page.evaluate(() => (DB.documents.find((d) => d.name === 'policy.txt') || {}).status), { timeout: 15000 }).toBe('analyzed');
+  expect(await page.evaluate(() => DB.documents.find((d) => d.name === 'policy.txt').gaps.length)).toBeGreaterThan(0);
+
+  await page.locator('.sb-item', { hasText: 'Security & Audit' }).first().click();
+  await expect(page.locator('body')).toContainText('sent through an Ordinex server function to Google Gemini');
+  expect(g.prodHits.filter((h) => !/cloudfunctions/.test(h))).toEqual([]);
+});
