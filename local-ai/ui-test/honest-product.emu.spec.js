@@ -100,3 +100,36 @@ test('CSV export neutralises spreadsheet formulas but leaves numbers alone', asy
   expect(csv).toContain('"-5"');
   expect(csv).toContain('"plain"');
 });
+
+test('failed analysis shows the real error (no endless spinner); upload is refused up front when AI is not connected', async ({ page }) => {
+  await wire(page);
+  await page.goto(app.origin + '/');
+  await page.getByText('Sign In', { exact: true }).first().click();
+  await page.locator('#authEmail').fill(USER.email); await page.locator('#authPass').fill(USER.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  // 1. a document whose analysis failed
+  await page.evaluate(() => {
+    DB.documents.unshift({ id: 'errdoc1', name: 'Policy.docx', type: 'DOCX', size: '11 KB', country: 'United States', domain: 'Data Privacy', status: 'error', score: null, uploaded: '2026-10-29', gaps: [], errorMessage: 'Local AI is not connected. Start Ordinex on your computer.' });
+    viewDocument('errdoc1');
+  });
+  const modal = await body(page);
+  expect(modal).toContain('Analysis failed');
+  expect(modal).toContain('Local AI is not connected');
+  expect(modal).not.toMatch(/Analysis in progress/);
+
+  // 2. hosted page, backend not connected: nothing is uploaded
+  const before = await page.evaluate(() => DB.documents.length);
+  await page.evaluate(() => {
+    closeModal();
+    localAIConfig.baseUrl = null;
+    for (const [id, v] of [['uploadCountry', 'United States'], ['uploadDomain', 'Data Privacy']]) {
+      const s = document.createElement('select'); s.id = id; s.innerHTML = `<option value="${v}">${v}</option>`; s.value = v; document.body.appendChild(s);
+    }
+    return handleUpload([new File(['hello world, this is a policy document'], 'a.txt', { type: 'text/plain' })]);
+  });
+  await expect(page.locator('body')).toContainText('AI analysis is not connected', { timeout: 5000 });
+  expect(await page.evaluate(() => DB.documents.length)).toBe(before);
+});

@@ -36329,7 +36329,7 @@ function viewDocument(id){
       <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span style="font-weight:700;">AI Compliance Score</span><span style="font-weight:800; font-size:18px; color:${d.score>=75?'var(--success)':d.score>=50?'var(--warning)':'var(--danger)'};">${d.score}%</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${d.score}%;"></div></div>
       <p style="font-size:13px; color:var(--text-2); margin-top:12px; line-height:1.6;">An AI model analysed this document against ${esc(d.country)} regulation summaries. The result is model-generated, not a legal conclusion, and needs human review. ${d.score>=75?'The analysis reported no high-severity gaps; recommendations are listed below.':'The analysis reported gaps that may need remediation — see Compliance Analysis for details.'}</p>
-    </div>`:`<div class="glass" style="padding:18px; margin-bottom:18px; text-align:center; color:var(--text-2);">${icon('loader-2',20,'spin')}<div style="margin-top:8px; font-size:13.5px;">Analysis in progress — results typically ready within a few minutes.</div></div>`}
+    </div>`:d.status==='error'?`<div class="glass" role="alert" style="padding:18px; margin-bottom:18px; color:var(--text-1); border:1px solid var(--danger);"><div style="font-weight:700; margin-bottom:6px; color:var(--danger);">Analysis failed</div><div style="font-size:13.5px; line-height:1.55;">${esc(d.errorMessage || 'The analysis could not be completed.')}</div><div style="font-size:12.5px; color:var(--text-2); margin-top:8px;">Nothing is still running. Fix the cause above, then delete this entry and upload the file again.</div></div>`:`<div class="glass" style="padding:18px; margin-bottom:18px; text-align:center; color:var(--text-2);">${icon('loader-2',20,'spin')}<div style="margin-top:8px; font-size:13.5px;">Analysis in progress — results typically ready within a few minutes.</div></div>`}
     ${d.gaps && d.gaps.length > 0 ? `
     <div class="glass" style="padding:18px; margin-bottom:18px;">
       <div style="font-weight:700; margin-bottom:12px;">Compliance Gaps Found (${d.gaps.length})</div>
@@ -39358,6 +39358,12 @@ ${text.slice(0, 15000)}
     // that default with no indication it wasn't your choice. Both now start
     // on an empty placeholder, so this can actually catch it.
     if (!country || !domain) { toast('Select a jurisdiction and domain before uploading.', 'warning'); return; }
+    // Analysis runs on a backend on the USER'S OWN computer. On the hosted site it is not connected until they start it, so
+    // uploading now would only create a document that can never be analysed. Say so up front instead.
+    if (localAIConfig.baseUrl === null) {
+      toast('AI analysis is not connected. This website cannot run AI itself: start Ordinex on your computer (npm run ai) and click the red AI badge to connect, then upload again. Nothing was uploaded.', 'warning', 'AI not connected');
+      return;
+    }
     closeModal();
     const validFiles = [];
     for (const f of Array.from(files)) {
