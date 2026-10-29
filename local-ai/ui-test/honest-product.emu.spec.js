@@ -253,3 +253,20 @@ test('image OCR works through the user\'s own key (scanned image -> transcriptio
   expect(bodies.some((b) => b.includes('inlineData') && b.includes('image/png'))).toBe(true);
   expect(bodies.some((b) => b.includes('SCANNED PRIVACY NOTICE'))).toBe(true);        // the transcription fed the analysis
 });
+
+test('toasts are never hidden under the fixed AI badge or the local-assessment link', async ({ page }) => {
+  await wire(page);
+  await page.goto(app.origin + '/');
+  await page.getByText('Sign In', { exact: true }).first().click();
+  await page.locator('#authEmail').fill(USER.email); await page.locator('#authPass').fill(USER.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await page.evaluate(() => { localAIConfig.baseUrl = null; toast('Select a jurisdiction and domain before uploading.', 'warning'); });
+  const toast = page.locator('.toast').first();
+  await expect(toast).toBeVisible();
+  const boxes = await page.evaluate(() => {
+    const r = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    return { toast: r(document.querySelector('.toast')), badge: r(document.getElementById('local-ai-badge')), link: r(document.getElementById('local-assess-link')) };
+  });
+  expect(boxes.toast.bottom, 'toast overlaps the AI badge').toBeLessThanOrEqual(Math.min(boxes.badge.top, boxes.link.top));
+});

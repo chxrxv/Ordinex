@@ -34663,7 +34663,8 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
   th.sticky-col{ background:var(--panel); }
 
   .modal-backdrop{ position:fixed; inset:0; background:rgba(4,6,14,0.6); backdrop-filter:blur(4px); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
-  .toast-wrap{ position:fixed; bottom:24px; right:24px; z-index:200; display:flex; flex-direction:column; gap:10px; }
+  .toast-wrap{ position:fixed; bottom:96px; right:24px; z-index:100001; pointer-events:none; display:flex; flex-direction:column; gap:10px; }
+  .toast-wrap > *{ pointer-events:auto; }
   .toast{ min-width:300px; max-width:380px; padding:14px 16px; border-radius:12px; display:flex; align-items:flex-start; gap:10px; box-shadow:0 20px 40px -12px rgba(0,0,0,0.5); }
 
   .sidebar-backdrop{ display:none; }
@@ -34702,7 +34703,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     .marketing-links{ display:none; }
   }
   @media (max-width: 640px){
-    .toast-wrap{ left:12px; right:12px; bottom:12px; }
+    .toast-wrap{ left:12px; right:12px; bottom:96px; }
     .toast{ min-width:0; max-width:none; width:100%; }
     .topbar-user-text{ display:none; } /* name+role text is the single biggest topbar item — dropping it (avatar stays) is what keeps the icon row from overflowing on narrow phones */
     #topbar > div{ gap:6px !important; } /* both flex groups use inline gap:10-16px; tightened here since it's the difference between fitting 4 icon buttons + avatar and not, on a ~360px-wide content area */
@@ -40360,8 +40361,8 @@ ${docsSummary}`;
 render();
 
 </script>
-<a id="local-assess-link" href="/local-assess.html" style="position:fixed;right:12px;bottom:48px;z-index:99999;font:12px/1.4 system-ui,sans-serif;padding:6px 10px;border-radius:8px;background:#3b4ccf;color:#fff;text-decoration:none">Local assessment (works without Firebase) &rarr;</a>
-<div id="local-ai-badge" role="status" aria-live="polite" style="position:fixed;right:12px;bottom:12px;z-index:99999;font:12px/1.4 system-ui,sans-serif;padding:6px 10px;border-radius:8px;background:#222;color:#fff;cursor:pointer;opacity:.92" title="Local AI status — click to open the latest validated report"></div>
+<a id="local-assess-link" href="/local-assess.html" style="position:fixed;right:12px;bottom:48px;z-index:99999;font:12px/1.4 system-ui,sans-serif;padding:6px 10px;border-radius:8px;background:#3b4ccf;color:#fff;text-decoration:none" title="Separate page that analyses a document using a backend on your own computer">Local assessment &rarr;</a>
+<div id="local-ai-badge" role="status" aria-live="polite" style="position:fixed;right:12px;bottom:12px;z-index:99999;font:12px/1.4 system-ui,sans-serif;padding:6px 10px;border-radius:8px;background:#222;color:#fff;cursor:pointer;opacity:.92;max-width:min(380px,calc(100vw - 24px));text-align:left" title="AI status — click to set up AI (your own free Gemini key, or a local backend)"></div>
 <script>
 (function () {
   var el = document.getElementById('local-ai-badge');
