@@ -85,9 +85,9 @@ test('CROSS-ORG OVERWRITE: another org cannot hijack reports/risk records by wri
   }
 });
 test('compliance issues: org-scoped update that cannot change org; never deletable', async () => {
-  await assertSucceeds(updateDoc(doc(as('bob'), 'complianceIssues', 'issA'), { status: 'resolved' }));
+  await assertSucceeds(updateDoc(doc(as('bob'), 'complianceIssues', 'issA'), { status: 'Resolved' }));
   await assertFails(updateDoc(doc(as('bob'), 'complianceIssues', 'issA'), { organizationId: 'orgB' }));
-  await assertFails(updateDoc(doc(as('carol'), 'complianceIssues', 'issA'), { status: 'resolved' }));
+  await assertFails(updateDoc(doc(as('carol'), 'complianceIssues', 'issA'), { status: 'Resolved' }));
   await assertFails(deleteDoc(doc(as('alice'), 'complianceIssues', 'issA')));
 });
 test('notifications and chats are private to their user and cannot be re-assigned', async () => {

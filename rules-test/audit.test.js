@@ -172,3 +172,18 @@ test('auditLogs create: forged timestamp, extra fields, bad status and oversized
   const { timestamp, ...noTs } = ok;
   await assertFails(addDoc(collection(b, 'auditLogs'), noTs));
 });
+
+test('remediation: owner must be a member of the issue\'s own org; status and due date are validated', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'complianceIssues', 'iss1'), { organizationId: 'orgA', documentId: 'd1', title: 't', severity: 'High', status: 'Open', createdAt: ago(5) });
+  });
+  const ref = doc(as('bob'), 'complianceIssues', 'iss1');
+  await assertSucceeds(updateDoc(ref, { status: 'In Progress', assigneeId: 'alice', dueDate: '2026-12-31' }));   // alice is in orgA
+  await assertSucceeds(updateDoc(ref, { assigneeId: null, dueDate: null }));                                      // clearing is fine
+  await assertFails(updateDoc(ref, { assigneeId: 'vic' }));                 // member of ANOTHER org
+  await assertFails(updateDoc(ref, { assigneeId: 'nobody-here' }));         // no such user
+  await assertFails(updateDoc(ref, { status: 'Done-ish' }));
+  await assertFails(updateDoc(ref, { dueDate: 'next tuesday' }));
+  await assertFails(updateDoc(ref, { dueDate: 20261231 }));
+  await assertFails(updateDoc(doc(as('mal'), 'complianceIssues', 'iss1'), { status: 'Resolved' }));              // other tenant
+});

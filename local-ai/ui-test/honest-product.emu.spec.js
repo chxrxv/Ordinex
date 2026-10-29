@@ -183,3 +183,73 @@ test('own free Gemini key: setup modal stores it locally, upload is analysed dir
   await expect(page.locator('body')).toContainText('document text is sent to Google Gemini under your own account');
   expect(g.prodHits.filter((h) => !/generativelanguage/.test(h))).toEqual([]);
 });
+
+test('remediation: assign an owner and due date, status persists, owner is notified, overdue is flagged', async ({ browser }) => {
+  // second member joins the same org (invite flow is covered elsewhere) - seed directly via the emulator's owner token
+  const admin = await browser.newPage(); const g = await wire(admin);
+  await admin.goto(app.origin + '/');
+  await admin.getByText('Sign In', { exact: true }).first().click();
+  await admin.locator('#authEmail').fill(USER.email); await admin.locator('#authPass').fill(USER.password);
+  await admin.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(admin.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await admin.waitForTimeout(1500);
+  const me = await admin.evaluate(() => ({ uid: fbAuth.currentUser.uid, org: DB.currentUser.orgId }));
+  const H = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' };
+  const base = `${FS}/v1/projects/${PROJECT}/databases/(default)/documents`;
+  await fetch(`${base}/users/colleague1`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: { uid: { stringValue: 'colleague1' }, email: { stringValue: 'col@acme.test' }, displayName: { stringValue: 'Colleague One' }, role: { stringValue: 'analyst' }, organizationId: { stringValue: me.org } } }) });
+  await fetch(`${base}/complianceIssues/issue_rem1`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: { organizationId: { stringValue: me.org }, documentId: { stringValue: 'd1' }, title: { stringValue: 'No retention period' }, description: { stringValue: 'x' }, severity: { stringValue: 'High' }, status: { stringValue: 'Open' }, createdAt: { timestampValue: new Date().toISOString() } } }) });
+  await admin.reload(); await expect(admin.locator('#sidebar')).toBeVisible({ timeout: 30000 }); await admin.waitForTimeout(2000);
+
+  await admin.locator('.sb-item', { hasText: 'Compliance' }).first().click();
+  await admin.getByText('No retention period').first().click({ trial: false }).catch(() => {});
+  await admin.evaluate(() => viewIssue('issue_rem1'));
+  await admin.locator('#issueStatusSel').selectOption('In Progress');
+  await admin.locator('#issueOwnerSel').selectOption('colleague1');
+  await admin.locator('#issueDueInput').fill('2020-01-01');                 // in the past -> overdue
+  await admin.getByRole('button', { name: 'Save changes' }).click();
+  await expect(admin.locator('body')).toContainText('Colleague One', { timeout: 10000 });
+  await expect(admin.locator('body')).toContainText('Overdue');
+  await expect.poll(async () => (await (await fetch(`${base}/complianceIssues/issue_rem1`, { headers: { Authorization: 'Bearer owner' } })).json()).fields.status.stringValue, { timeout: 10000 }).toBe('In Progress');
+  const doc = await (await fetch(`${base}/complianceIssues/issue_rem1`, { headers: { Authorization: 'Bearer owner' } })).json();
+  expect(doc.fields.status.stringValue).toBe('In Progress');
+  expect(doc.fields.assigneeId.stringValue).toBe('colleague1');
+  expect(doc.fields.dueDate.stringValue).toBe('2020-01-01');
+  await expect.poll(async () => {          // the notification is written just after the issue update
+    const n = await (await fetch(`${base}/notifications?pageSize=100`, { headers: { Authorization: 'Bearer owner' } })).json();
+    return (n.documents || []).some((d) => d.fields.userId.stringValue === 'colleague1' && /assigned to you/.test(d.fields.title.stringValue));
+  }, { timeout: 10000 }).toBe(true);
+  // an owner from outside the org is refused client-side AND by the rules
+  const bad = await admin.evaluate(async () => { try { await fb.updateDoc(fb.doc(fbDb, 'complianceIssues', 'issue_rem1'), { assigneeId: 'someone-elsewhere' }); return 'allowed'; } catch (e) { return e.code; } });
+  expect(bad).toBe('permission-denied');
+  expect(g.prodHits).toEqual([]);
+  await admin.close();
+});
+
+test('image OCR works through the user\'s own key (scanned image -> transcription -> analysis)', async ({ page }) => {
+  await wire(page);
+  const bodies = [];
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    const req = route.request(); const cors = { 'access-control-allow-origin': app.origin, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const b = req.postData() || ''; bodies.push(b);
+    const text = b.includes('inlineData') ? 'SCANNED PRIVACY NOTICE. We collect emails and keep them forever and share them with partners.'
+      : JSON.stringify({ domain: 'Data Privacy', score: 40, gaps: [{ title: 'Unlimited retention', severity: 'High', description: 'd', recommendation: 'r' }] });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }) });
+  });
+  await page.goto(app.origin + '/');
+  await page.getByText('Sign In', { exact: true }).first().click();
+  await page.locator('#authEmail').fill(USER.email); await page.locator('#authPass').fill(USER.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sidebar')).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  await page.evaluate((b64) => {
+    localStorage.setItem('ordinex.userGeminiKey', 'AQ.' + 'y'.repeat(40)); localAIConfig.baseUrl = null;
+    for (const [id, v] of [['uploadCountry', 'United States'], ['uploadDomain', 'Data Privacy']]) { const s = document.createElement('select'); s.id = id; s.innerHTML = `<option value="${v}">${v}</option>`; s.value = v; document.body.appendChild(s); }
+    const bin = atob(b64); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return handleUpload([new File([u8], 'scan.png', { type: 'image/png' })]);
+  }, png);
+  await expect.poll(async () => page.evaluate(() => (DB.documents.find((d) => d.name === 'scan.png') || {}).status), { timeout: 20000 }).toBe('analyzed');
+  expect(bodies.some((b) => b.includes('inlineData') && b.includes('image/png'))).toBe(true);
+  expect(bodies.some((b) => b.includes('SCANNED PRIVACY NOTICE'))).toBe(true);        // the transcription fed the analysis
+});

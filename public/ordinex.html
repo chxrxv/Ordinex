@@ -36582,13 +36582,15 @@ function renderComplianceAnalysis(){
   <div class="glass" style="overflow-x:auto;">
     ${issues.length===0? emptyState('check-circle-2','No issues in this view','Nice work — nothing matches this filter right now.') : `
     <table>
-      <thead><tr><th>Issue</th><th>Regulation</th><th>Severity</th><th>Status</th><th>Created</th><th class="sticky-col">Actions</th></tr></thead>
+      <thead><tr><th>Issue</th><th>Regulation</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due</th><th>Created</th><th class="sticky-col">Actions</th></tr></thead>
       <tbody>
         ${issues.slice(0, STATE.issueDisplayLimit).map(i=>`
         <tr><td><div style="font-weight:600; color:var(--text-0);">${esc(i.title)}</div><div style="font-size:12px; color:var(--text-3); margin-top:2px;">${esc(i.article)}</div></td>
           <td><span class="badge badge-info">${esc(i.reg)}</span></td>
           <td>${severityBadge(i.severity)}</td>
           <td>${statusBadge(i.status)}</td>
+          <td>${esc(issueOwnerName(i))}</td>
+          <td>${issueDueBadge(i)}</td>
           <td>${fmtDate(i.created)}</td>
           <td class="sticky-col"><button class="btn btn-ghost btn-sm" onclick="viewIssue(${jsq(i.id)})">${icon('eye',13)} View</button></td>
         </tr>`).join('')}
@@ -36598,8 +36600,22 @@ function renderComplianceAnalysis(){
   ${loadMoreButton('issueDisplayLimit', Math.min(issues.length, STATE.issueDisplayLimit), issues.length, 50)}
   `;
 }
+/* Remediation workflow helpers. An issue can have an owner (a member of the same organisation), a due date and a status.
+   "Overdue" is computed from the due date and today's date in the browser; it is not a stored or server-checked value. */
+function issueOwnerName(i){
+  if(!i.assigneeId) return 'Unassigned';
+  const m = DB.team.find(t=>t.id===i.assigneeId);
+  return m ? (m.name || m.email) : 'Former member';
+}
+function issueDueBadge(i){
+  if(!i.dueDate) return '<span style="color:var(--text-3);">—</span>';
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = i.status !== 'Resolved' && i.dueDate < today;
+  return `<span class="${overdue?'badge badge-danger':''}">${fmtDate(i.dueDate)}${overdue?' · Overdue':''}</span>`;
+}
 function viewIssue(id){
   const i = DB.complianceIssues.find(x=>x.id===id);
+  const members = DB.team.filter(t=>t.status==='Active');
   openModal(`
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
       <div>${severityBadge(i.severity)} <span style="margin-left:8px;">${statusBadge(i.status)}</span></div>
@@ -36611,11 +36627,31 @@ function viewIssue(id){
       <div style="font-weight:700; font-size:13.5px; margin-bottom:8px; display:flex; align-items:center; gap:6px;">${icon('sparkles',15,'')} AI Recommendation</div>
       <p style="font-size:13.5px; color:var(--text-1); line-height:1.6;">${i.recommendation ? esc(i.recommendation) : 'No AI recommendation was generated for this issue. Run "New Analysis" to regenerate it with a recommendation.'}</p>
     </div>
+    <div class="glass" style="padding:16px; margin-bottom:16px;">
+      <div style="font-weight:700; font-size:13.5px; margin-bottom:10px;">Remediation</div>
+      <div class="grid-cols-auto" style="grid-template-columns:repeat(3,1fr); gap:10px;">
+        <label style="font-size:12px; color:var(--text-2);">Status
+          <select id="issueStatusSel" style="width:100%; margin-top:4px;">${['Open','In Progress','Resolved'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${s}</option>`).join('')}</select></label>
+        <label style="font-size:12px; color:var(--text-2);">Owner
+          <select id="issueOwnerSel" style="width:100%; margin-top:4px;"><option value="">Unassigned</option>${members.map(m=>`<option value="${esc(m.id)}" ${i.assigneeId===m.id?'selected':''}>${esc(m.name||m.email)}</option>`).join('')}</select></label>
+        <label style="font-size:12px; color:var(--text-2);">Due date
+          <input id="issueDueInput" type="date" value="${esc(i.dueDate||'')}" style="width:100%; margin-top:4px;" /></label>
+      </div>
+    </div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-      <button class="btn btn-primary" onclick="i_resolve('${id}')">${icon('check',15)} Mark Resolved</button>
+      <button class="btn btn-ghost" onclick="i_resolve(${jsq(id)})">${icon('check',15)} Mark Resolved</button>
+      <button class="btn btn-primary" onclick="saveIssueWorkflow(${jsq(id)})">Save changes</button>
     </div>
   `);
+}
+// Demo-mode default; the live version (persisting to Firestore) replaces this in the integration layer.
+function saveIssueWorkflow(id){
+  const i = DB.complianceIssues.find(x=>x.id===id); if(!i) return;
+  i.status = document.getElementById('issueStatusSel').value;
+  i.assigneeId = document.getElementById('issueOwnerSel').value || null;
+  i.dueDate = document.getElementById('issueDueInput').value || null;
+  closeModal(); render(); toast('Issue updated.','success');
 }
 function i_resolve(id){ const i = DB.complianceIssues.find(x=>x.id===id); i.status='Resolved'; closeModal(); render(); toast('Issue marked as resolved.','success'); }
 
@@ -38364,11 +38400,11 @@ if (LIVE_MODE) {
   }
 
   /** Calls Gemini directly with the USER'S OWN free key (header, not URL; never logged). */
-  async function callUserGemini({ prompt, systemInstruction, jsonOutput = false }) {
+  async function callUserGemini({ prompt, systemInstruction, jsonOutput = false, imageBase64 = null, imageMimeType = null }) {
     const key = getUserGeminiKey();
     if (!key) throw new Error('No personal Gemini key is set. Click the AI badge to add your free key.');
     const body = {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [...(imageBase64 && imageMimeType ? [{ inlineData: { mimeType: imageMimeType, data: imageBase64 } }] : []), { text: prompt }] }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 2048, ...(jsonOutput ? { responseMimeType: 'application/json' } : {}) },
     };
     if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
@@ -38433,6 +38469,7 @@ if (LIVE_MODE) {
   }
 
   async function callGemini({ prompt, systemInstruction, model = geminiConfig.model, jsonOutput = false, imageBase64 = null, imageMimeType = null }) {
+    if (!geminiConfig.allowCloud && usingUserGeminiKey()) return callUserGemini({ prompt, systemInstruction, jsonOutput, imageBase64, imageMimeType });   // includes image OCR via the user's own key
     if (!geminiConfig.allowCloud) return callLocalAI({ prompt, systemInstruction, jsonOutput, imageBase64 });
     if (!geminiConfig.apiKey || geminiConfig.apiKey === 'YOUR_GEMINI_API_KEY') {
       throw new Error('Gemini API key is not configured — see SETUP.md.');
@@ -38548,7 +38585,7 @@ if (LIVE_MODE) {
           prompt: 'Transcribe every word of readable text in this image exactly as it appears, in reading order. Output ONLY the transcribed text — no commentary, no description of the image, no markdown. If there is no readable text, output nothing.',
           model: geminiConfig.modelFast,
           imageBase64: base64,
-          imageMimeType: file.type || 'image/jpeg',
+          imageMimeType: file.type || (/\.png$/.test(name) ? 'image/png' : /\.webp$/.test(name) ? 'image/webp' : 'image/jpeg'),
         });
         return transcribed || '';
       }
@@ -38724,6 +38761,7 @@ ${text.slice(0, 15000)}
       severity: v.severity || 'Low', status: v.status || 'Open',
       created, documentId: v.documentId || null, organizationId: v.organizationId,
       recommendation: v.recommendation || '',
+      assigneeId: v.assigneeId || null, dueDate: v.dueDate || null,
     };
   }
 
@@ -38843,6 +38881,7 @@ ${text.slice(0, 15000)}
     High: { icon: 'alert-triangle', color: 'var(--warning)', tag: 'High Risk' },
     Medium: { icon: 'radio', color: 'var(--accent-1)', tag: 'Update' },
     Low: { icon: 'bar-chart-2', color: 'var(--success)', tag: 'Info' },
+    Assigned: { icon: 'clock', color: 'var(--warning)', tag: 'Pending Action' },
   };
   function normalizeFirestoreNotification(id, v) {
     let date = new Date().toISOString().slice(0, 10);
@@ -40038,6 +40077,31 @@ ${docsSummary}`;
     } catch (e) {
       toast('Could not update the issue: ' + e.message, 'danger', 'Error');
     }
+  };
+
+  // ---- Remediation workflow: owner / due date / status, persisted; the new owner gets an in-app notification ----
+  window.saveIssueWorkflow = async function (id) {
+    const i = DB.complianceIssues.find((x) => x.id === id); if (!i) return;
+    const status = document.getElementById('issueStatusSel').value;
+    const assigneeId = document.getElementById('issueOwnerSel').value || null;
+    const dueDate = document.getElementById('issueDueInput').value || null;
+    if (!['Open', 'In Progress', 'Resolved'].includes(status)) { toast('Choose a valid status.', 'warning'); return; }
+    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) { toast('Choose a valid due date.', 'warning'); return; }
+    if (assigneeId && !DB.team.some((t) => t.id === assigneeId && t.status === 'Active')) { toast('The owner must be an active member of your organisation.', 'warning'); return; }
+    try {
+      const patch = { status, assigneeId, dueDate, updatedAt: fb.serverTimestamp() };
+      if (status === 'Resolved' && i.status !== 'Resolved') patch.resolvedAt = fb.serverTimestamp();
+      await fb.updateDoc(fb.doc(fbDb, 'complianceIssues', id), patch);
+      const uid = fbAuth.currentUser.uid, orgId = DB.currentUser.orgId;
+      if (assigneeId && assigneeId !== i.assigneeId && assigneeId !== uid) {
+        await fb.addDoc(fb.collection(fbDb, 'notifications'), {
+          userId: assigneeId, organizationId: orgId, title: 'Compliance issue assigned to you',
+          body: String(i.title).slice(0, 200) + (dueDate ? ' (due ' + dueDate + ')' : ''), level: 'Assigned', read: false, createdAt: fb.serverTimestamp(),
+        }).catch((e) => console.error('Assignment notification failed:', e));
+      }
+      await writeAuditLog({ organizationId: orgId, actorUid: uid, action: 'Issue updated', target: String(i.title).slice(0, 120) + ' -> ' + status });
+      closeModal(); toast('Issue updated.', 'success');
+    } catch (e) { toast('Could not update the issue: ' + e.message, 'danger', 'Error'); }
   };
 
   // ---- Avatar upload: no Cloud Storage on the free plan (see SETUP.md),

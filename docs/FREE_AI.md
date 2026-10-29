@@ -16,4 +16,5 @@ Ordinex has no AI server and uses no Blaze/Cloud Functions. AI works in one of t
   injected IDs, but treat the key as low-value: use a dedicated free key and remove it on shared computers.
 - Free quotas are small and per user; the app reports "quota used up" clearly.
 - Key-based analysis uses the prompt-based pipeline: results are model-estimated and need human review. The local
-  backend adds retrieval, citations and the deterministic risk score. Image OCR is not supported.
+  backend adds retrieval, citations and the deterministic risk score. Image OCR (JPG/PNG) works with a key (the image is
+  sent to Google); it is not available with the local backend.

@@ -114,5 +114,8 @@ status enum, server timestamp).
 Deploy scope: `firebase deploy --only firestore:rules,hosting --project ordinex-862ba` (rules changed). Never `npm run deploy`.
 Rules rollback: re-deploy the previous `firestore.rules` commit (the audit-shape rule is purely additive).
 
-Deliberately NOT built (reported, not faked): remediation owner/due-date workflow, notification delivery engine,
-organisation selector, regulatory-update ingestion, payments/subscriptions, OCR, verified GDPR/DPDP source text.
+Built since: remediation workflow (owner, due date, status, in-app assignment notification; `complianceIssues` rules validate
+status/date/owner-in-same-org, so a rules deploy is needed), own-Gemini-key AI incl. image OCR (docs/FREE_AI.md).
+
+Deliberately NOT built (reported, not faked): email/push notification delivery (in-app only), organisation selector
+(one organisation per user), regulatory-update ingestion, payments/subscriptions, verified GDPR/DPDP source text.

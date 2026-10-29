@@ -225,7 +225,15 @@ service cloud.firestore {
       // to any org member, a real (documented) trade-off of this build.
       allow update: if isSameOrg(resource.data.organizationId) && request.resource.data.organizationId == resource.data.organizationId
                     && request.resource.data.get('documentId', null) == resource.data.get('documentId', null)
-                    && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
+                    && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+                    // Remediation workflow fields are validated: known status, ISO date, owner must be a member of THIS organisation.
+                    && request.resource.data.get('status', 'Open') in ['Open', 'In Progress', 'Resolved']
+                    && (request.resource.data.get('dueDate', null) == null
+                        || (request.resource.data.dueDate is string && request.resource.data.dueDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')))
+                    && (request.resource.data.get('assigneeId', null) == null
+                        || (request.resource.data.assigneeId is string
+                            && exists(/databases/$(database)/documents/users/$(request.resource.data.assigneeId))
+                            && get(/databases/$(database)/documents/users/$(request.resource.data.assigneeId)).data.get('organizationId', null) == resource.data.organizationId));
       allow delete: if false;
     }
 
