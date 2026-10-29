@@ -36393,6 +36393,8 @@ function openUploadModal(){
       <div style="flex:1;"><label>Jurisdiction</label><select id="uploadCountry"><option value="" selected disabled>Select jurisdiction...</option>${Object.values(COUNTRY_NAMES).map(c=>`<option>${c}</option>`).join('')}</select></div>
       <div style="flex:1;"><label>Domain</label><select id="uploadDomain"><option value="" selected disabled>Select domain...</option><option>Data Privacy</option><option>Finance</option><option>HR</option><option>Cybersecurity</option><option>Corporate Governance</option></select></div>
     </div>
+    <div style="margin-top:14px;"><label>Write findings in</label><select id="uploadFindingsLanguage">${REPORT_LANGUAGE_OPTIONS.map(([c,n])=>`<option value="${c}" ${c==='en'?'selected':''}>${n}</option>`).join('')}</select>
+      <div style="font-size:12px; color:var(--text-3); margin-top:6px; line-height:1.5;">Applies when AI runs through your Gemini key or the hosted service. The local backend writes findings in English. AI text in other languages needs review by a native speaker.</div></div>
   `);
 }
 function handleUpload(files){
@@ -37119,6 +37121,19 @@ const REPORT_LANGUAGE_OPTIONS = [
   ['en','English'], ['hi','Hindi'], ['kn','Kannada'], ['ta','Tamil'], ['te','Telugu'], ['bn','Bengali'], ['mr','Marathi'],
   ['de','German'], ['fr','French'], ['es','Spanish'], ['ja','Japanese'], ['zh','Chinese'], ['ko','Korean'], ['ar','Arabic'], ['pt','Portuguese']
 ];
+/* Language support for AI-written text. Only codes in REPORT_LANGUAGE_OPTIONS are accepted; anything else falls back to English,
+   so a tampered select value can never inject text into a prompt. Quality varies by language and model: AI-written text in
+   non-English languages must be reviewed by a native speaker before it is relied on. */
+function languageCode(code){ return REPORT_LANGUAGE_OPTIONS.some(([c])=>c===code) ? code : 'en'; }
+function languageName(code){ const hit = REPORT_LANGUAGE_OPTIONS.find(([c])=>c===languageCode(code)); return hit ? hit[1] : 'English'; }
+function languageDirective(code, { json = false } = {}){
+  code = languageCode(code);
+  if(code === 'en') return '';
+  const name = languageName(code);
+  return json
+    ? `LANGUAGE: Write every human-readable text value (title, description, recommendation) in ${name}. Keep the JSON keys and the "domain" and "severity" values (High, Medium, Low) exactly as specified, in English. Keep law and article names (for example GDPR, HIPAA) as they are.`
+    : `LANGUAGE: Write the entire answer in ${name}. Keep law and regulation names (for example GDPR, HIPAA) and numbers unchanged.`;
+}
 function renderLanguageSelect(id, label, value){
   const selected = value || 'en';
   return `
@@ -38624,8 +38639,11 @@ if (LIVE_MODE) {
     }
   }
 
-  async function runComplianceAnalysis(text, country, fileName) {
-    if (!geminiConfig.allowCloud && !usingUserGeminiKey() && !usingProxyAI()) return runLocalComplianceAnalysis(text, country, fileName);
+  async function runComplianceAnalysis(text, country, fileName, findingsLanguage = 'en') {
+    if (!geminiConfig.allowCloud && !usingUserGeminiKey() && !usingProxyAI()) {
+      if (languageCode(findingsLanguage) !== 'en') toast('The local backend writes findings in English. Use your Gemini key or the hosted AI for ' + languageName(findingsLanguage) + '.', 'info', 'Language');
+      return runLocalComplianceAnalysis(text, country, fileName);
+    }
     // Was never told which jurisdiction the document was tagged with, so
     // every country produced the same generic, non-jurisdiction-specific
     // analysis regardless of the country picked at upload time.
@@ -38637,6 +38655,7 @@ if (LIVE_MODE) {
 2. ${jurisdictionLine}
 3. Give an overall compliance score from 0-100 based on how well the content complies with the applicable regulation(s) identified above.
 4. List up to 5 specific gaps or risks found, each with a severity of High, Medium, or Low, the specific regulation/article it violates where applicable, and a concrete recommendation to remediate it (1-3 sentences, actionable).
+${languageDirective(findingsLanguage, { json: true })}
 Respond ONLY as JSON in this exact shape:
 {"domain":"...","score":0,"gaps":[{"title":"...","severity":"High","description":"...","recommendation":"..."}]}
 
@@ -39506,6 +39525,7 @@ ${text.slice(0, 15000)}
     if (!files || files.length === 0) return;
     const country = document.getElementById('uploadCountry')?.value || '';
     const domain = document.getElementById('uploadDomain')?.value || '';
+    const findingsLanguage = languageCode(document.getElementById('uploadFindingsLanguage')?.value || 'en');
     // The jurisdiction/domain selects used to silently default to whichever
     // option was listed first (United States / Data Privacy) if left
     // untouched — every upload where you forgot to pick one got tagged with
@@ -39560,7 +39580,7 @@ ${text.slice(0, 15000)}
         const savedText = text.slice(0, 200000);
         await fb.setDoc(docRef, { extractedText: savedText }, { merge: true });
 
-        const analysis = await runComplianceAnalysis(text, country, f.name);
+        const analysis = await runComplianceAnalysis(text, country, f.name, findingsLanguage);
         await applyAnalysisResult({
           docRef, docId, orgId: DB.currentUser.orgId, fileName: f.name,
           analysis, actorUid: fbAuth.currentUser.uid, domainOverride: domain || null, sourceText: text,
@@ -39658,6 +39678,9 @@ ${regContext || '(no regulations loaded yet)'}`;
   window.generateReport = async function () {
     const title = document.getElementById('genReportTitle').value || 'Untitled Report';
     const type = document.getElementById('genReportType').value;
+    const val = (id) => languageCode((document.getElementById(id) || {}).value || 'en');
+    const reportLanguage = val('genReportLanguage'), documentLanguage = val('genReportDocumentLanguage'), sourceLanguage = val('genReportSourceLanguage'), analysisLanguage = val('genReportAnalysisLanguage');
+    STATE.languageSettings = { uiLanguage: 'en', documentLanguage, sourceLanguage, analysisLanguage, reportLanguage };
     closeModal();
     toast('Generating your report with the local AI model — this can take a minute or two.', 'info', 'Generating report');
     try {
@@ -39665,7 +39688,7 @@ ${regContext || '(no regulations loaded yet)'}`;
       const orgId = DB.currentUser.orgId;
       await rateLimitCheck('generateReport', { maxRequests: 15, windowMs: 60 * 60 * 1000 });
       const reportRef = fb.doc(fb.collection(fbDb, 'complianceReports'));
-      await fb.setDoc(reportRef, { organizationId: orgId, title, type, status: 'generating', createdBy: uid, createdAt: fb.serverTimestamp() });
+      await fb.setDoc(reportRef, { organizationId: orgId, title, type, language: reportLanguage, status: 'generating', createdBy: uid, createdAt: fb.serverTimestamp() });
 
       const { docsSummary, riskSummary } = await fetchOrgDocsAndRiskSummary(orgId);
       const prompt = `Write an executive summary (250-400 words) for a "${type}" titled "${title}" for an organization, based on:
@@ -39676,7 +39699,8 @@ ${docsSummary || '(none yet)'}
 LATEST RISK ASSESSMENT:
 ${riskSummary}
 
-Write in a professional, board-ready tone. Do not use markdown headers.`;
+Write in a professional, board-ready tone. Do not use markdown headers.
+${[languageDirective(reportLanguage), documentLanguage !== 'en' ? 'The analysed documents are written in ' + languageName(documentLanguage) + '.' : '', sourceLanguage !== 'en' ? 'The regulatory sources are in ' + languageName(sourceLanguage) + '.' : ''].filter(Boolean).join('\n')}`;
       const summary = await callGemini({ prompt });
       await fb.updateDoc(reportRef, { status: 'completed', summary, completedAt: fb.serverTimestamp() });
       await writeAuditLog({ organizationId: orgId, actorUid: uid, action: 'Report generated', target: title });
@@ -39722,7 +39746,8 @@ ${riskSummary}
 PREVIOUS VERSION OF THIS SUMMARY (for context, don't just repeat it — reflect the latest data above):
 ${report.summary || '(none yet)'}
 
-Write in a professional, board-ready tone. Do not use markdown headers.`;
+Write in a professional, board-ready tone. Do not use markdown headers.
+${languageDirective(report.language)}`;
       const newSummary = await callGemini({ prompt });
 
       await fb.updateDoc(reportRef, {
